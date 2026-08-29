@@ -372,17 +372,15 @@ function ModelCapabilities(props: {
   )
   const unavailable = snapshot.status === 'unavailable'
   const providers = snapshot.status === 'ready' ? providersOf(snapshot) : {}
-  // Only routes the openai-completions adapter actually serves are editable
-  // here: the takeover list (`enabled: true` + provider ids). A provider that
-  // pi-ai serves natively (e.g. mimo via xiaomi) is NOT shown — its reasoning
-  // stays pi-ai-managed (off/high visible, effort validated by pi-ai).
+  // Every llm-pi-ai provider is listed, each with a takeover switch; only
+  // routes currently in the takeover list get the model editor below. A
+  // provider that pi-ai serves natively (e.g. mimo via xiaomi) stays visible
+  // with its takeover switch OFF — flip it to hand the route to the
+  // openai-completions adapter and unlock its model editor.
   const takeoverList = takeover.status === 'ready'
     ? takeoverListOf(takeover)
     : []
-  const filteredProviders = takeoverList.length === 0
-    ? {}
-    : Object.fromEntries(Object.entries(providers).filter(([id]) => takeoverList.includes(id)))
-  const allEntries = entriesOf(filteredProviders)
+  const allEntries = entriesOf(providers)
 
   // UI-only state: provider/model expansion, the wire drafts, and the query.
   const [query, setQuery] = useState('')
@@ -402,6 +400,20 @@ function ModelCapabilities(props: {
       .catch(() => { setBusy(false) })
   }
 
+  /** Toggle whether the openai-completions adapter takes over one provider. */
+  const toggleTakeover = (providerId: string): void => {
+    if (takeover.status !== 'ready' || readonly) return
+    const current = takeoverListOf(takeover)
+    const next = current.includes(providerId)
+      ? current.filter(id => id !== providerId)
+      : [...current, providerId]
+    setBusy(true)
+    void takeoverScope.set('providers', next)
+      .then(() => takeoverScope.set('enabled', next.length > 0))
+      .then(() => { setBusy(false) })
+      .catch(() => { setBusy(false) })
+  }
+
   /** Patch one model row of one provider. */
   const patchModel = (
     providerId: string,
@@ -415,6 +427,33 @@ function ModelCapabilities(props: {
       if (typeof model !== 'object' || model === null) return current
       patch(model as Record<string, unknown>)
       return current
+    })
+  }
+
+  /** Toggle whether a model is a thinking model (reasoningEfforts table vs false). */
+  const toggleThinking = (entry: CapabilityEntry, next: boolean): void => {
+    patchModel(entry.providerId, entry.index, (row) => {
+      if (next) {
+        // Thinking on: a table must exist so the wire drives enable_thinking /
+        // reasoning_effort. Start from the persisted table or the default high
+        // set; a toggle model (no effort) keeps supportsReasoningEffort false.
+        const effortCapable = supportsEffortOf(row)
+        row['reasoningEfforts'] = effortCapable
+          ? effortTableOf({ high: 'high' })
+          : { off: null, high: 'high' }
+      } else {
+        // Thinking off: a non-reasoning model never takes an effort.
+        row['reasoningEfforts'] = false
+      }
+    })
+  }
+
+  /** Toggle whether a model accepts reasoning_effort levels. */
+  const toggleEffortCapable = (entry: CapabilityEntry, next: boolean): void => {
+    patchModel(entry.providerId, entry.index, (row) => {
+      patchCompat(row, (compat) => {
+        compat['supportsReasoningEffort'] = next
+      })
     })
   }
 
@@ -578,10 +617,20 @@ function ModelCapabilities(props: {
                   <ChevronIcon open={providerOpen} />
                 </button>
                 <p style={providerNameStyle}>{providerId}</p>
-                <p style={providerBadgeStyle}>{t('card.capabilities.vendor')} · {providerEntries.length}</p>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '11px', whiteSpace: 'nowrap', color: 'var(--dsw-alias-label-secondary)' }}>
+                  <input
+                    type="checkbox"
+                    checked={takeoverList.includes(providerId)}
+                    disabled={readonly || busy}
+                    onChange={() => toggleTakeover(providerId)}
+                  />
+                  <span>{t('card.capabilities.takeover')}</span>
+                </label>
+                <p style={providerBadgeStyle}>{providerEntries.length}</p>
               </div>
               {providerOpen
-                ? providerEntries.map(entry => {
+                ? (takeoverList.includes(providerId)
+                  ? providerEntries.map(entry => {
                   const key = entryKey(entry)
                   const modelOpen = expandedModels[key] === true
                   const efforts = effortsOf(entry.model)
@@ -618,77 +667,110 @@ function ModelCapabilities(props: {
                       {modelOpen
                         ? (
                           <div style={{ padding: '4px 10px 10px', borderTop: '1px solid var(--dsw-alias-border-l2)' }}>
-                            {/* Per-level wire editor */}
-                            <p style={fieldLabelStyle}>{t('card.capabilities.efforts')}</p>
-                            <div style={{ margin: '4px 0 6px' }}>
-                              {CAPABILITY_LEVELS.map(level => {
-                                const wire = drafts[key]?.[level]
-                                const on = wire !== undefined && wire !== null
-                                return (
-                                  <div key={level} style={levelRowStyle}>
-                                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
-                                      <input
-                                        type="checkbox"
-                                        checked={on}
-                                        disabled={readonly || busy}
-                                        onChange={(event) => {
-                                          const checked = event.currentTarget.checked
-                                          setDrafts(current => {
-                                            const draft = { ...(current[key] ?? {}) }
-                                            draft[level] = checked
-                                              ? (level === 'off' ? '' : level)
-                                              : null
-                                            return { ...current, [key]: draft }
-                                          })
-                                        }}
-                                      />
-                                      <span>{level}</span>
-                                    </label>
-                                    <span style={levelNameStyle}>{level === 'off' ? t('card.capabilities.offPlaceholder') : '→'}</span>
+                            {/* Capability switches first: is it a thinking model?
+                                Does it take effort levels? Only after both are
+                                confirmed does the effort editor appear. */}
+                            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', margin: '2px 0 8px' }}>
+                              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={thinking}
+                                  disabled={readonly || busy}
+                                  onChange={(event) => toggleThinking(entry, event.currentTarget.checked)}
+                                />
+                                <span>{t('card.capabilities.thinking')}</span>
+                              </label>
+                              {thinking
+                                ? (
+                                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
                                     <input
-                                      type="text"
-                                      value={wire ?? ''}
-                                      disabled={readonly || busy || !on}
-                                      placeholder={t('card.capabilities.wirePlaceholder')}
-                                      style={wireInputStyle}
-                                      onChange={(event) => {
-                                        setDrafts(current => {
-                                          const draft = { ...(current[key] ?? {}) }
-                                          draft[level] = event.currentTarget.value
-                                          return { ...current, [key]: draft }
-                                        })
-                                      }}
+                                      type="checkbox"
+                                      checked={supportsEffort}
+                                      disabled={readonly || busy}
+                                      onChange={(event) => toggleEffortCapable(entry, event.currentTarget.checked)}
                                     />
-                                  </div>
+                                    <span>{t('card.capabilities.supportsEffort')}</span>
+                                  </label>
                                 )
-                              })}
+                                : null}
                             </div>
-                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                              <button
-                                type="button"
-                                disabled={readonly || busy}
-                                onClick={() => applyDraft(entry)}
-                                style={{
-                                  ...controlStyle,
-                                  cursor: readonly || busy ? 'default' : 'pointer',
-                                  opacity: readonly || busy ? 0.5 : 1,
-                                }}
-                              >
-                                {t('card.capabilities.applyLevel')}
-                              </button>
-                              <button
-                                type="button"
-                                disabled={readonly || busy}
-                                onClick={() => resetDraft(entry)}
-                                style={{
-                                  ...controlStyle,
-                                  cursor: readonly || busy ? 'default' : 'pointer',
-                                  opacity: readonly || busy ? 0.5 : 1,
-                                }}
-                              >
-                                {t('card.capabilities.restoreDefault')}
-                              </button>
-                            </div>
+                            {thinking && supportsEffort
+                              ? (
+                                <>
+                                  {/* Per-level wire editor — only for effort-capable thinking models */}
+                                  <p style={fieldLabelStyle}>{t('card.capabilities.efforts')}</p>
+                                  <div style={{ margin: '4px 0 6px' }}>
+                                    {CAPABILITY_LEVELS.map(level => {
+                                      const wire = drafts[key]?.[level]
+                                      const on = wire !== undefined && wire !== null
+                                      return (
+                                        <div key={level} style={levelRowStyle}>
+                                          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+                                            <input
+                                              type="checkbox"
+                                              checked={on}
+                                              disabled={readonly || busy}
+                                              onChange={(event) => {
+                                                const checked = event.currentTarget.checked
+                                                setDrafts(current => {
+                                                  const draft = { ...(current[key] ?? {}) }
+                                                  draft[level] = checked
+                                                    ? (level === 'off' ? '' : level)
+                                                    : null
+                                                  return { ...current, [key]: draft }
+                                                })
+                                              }}
+                                            />
+                                            <span>{level}</span>
+                                          </label>
+                                          <span style={levelNameStyle}>{level === 'off' ? t('card.capabilities.offPlaceholder') : '→'}</span>
+                                          <input
+                                            type="text"
+                                            value={wire ?? ''}
+                                            disabled={readonly || busy || !on}
+                                            placeholder={t('card.capabilities.wirePlaceholder')}
+                                            style={wireInputStyle}
+                                            onChange={(event) => {
+                                              setDrafts(current => {
+                                                const draft = { ...(current[key] ?? {}) }
+                                                draft[level] = event.currentTarget.value
+                                                return { ...current, [key]: draft }
+                                              })
+                                            }}
+                                          />
+                                        </div>
+                                      )
+                                    })}
+                                  </div>
+                                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                    <button
+                                      type="button"
+                                      disabled={readonly || busy}
+                                      onClick={() => applyDraft(entry)}
+                                      style={{
+                                        ...controlStyle,
+                                        cursor: readonly || busy ? 'default' : 'pointer',
+                                        opacity: readonly || busy ? 0.5 : 1,
+                                      }}
+                                    >
+                                      {t('card.capabilities.applyLevel')}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={readonly || busy}
+                                      onClick={() => resetDraft(entry)}
+                                      style={{
+                                        ...controlStyle,
+                                        cursor: readonly || busy ? 'default' : 'pointer',
+                                        opacity: readonly || busy ? 0.5 : 1,
+                                      }}
+                                    >
+                                      {t('card.capabilities.restoreDefault')}
+                                    </button>
+                                  </div>
+                                </>
+                              )
+                              : null}
                             {/* Vision toggle + thinking format */}
                             <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '10px' }}>
                               <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
@@ -734,6 +816,11 @@ function ModelCapabilities(props: {
                     </div>
                   )
                 })
+                  : (
+                    <p style={{ ...hintStyle, padding: '8px 10px' }}>
+                      {t('card.capabilities.notTakenOver')}
+                    </p>
+                  ))
                 : null}
             </div>
           )
