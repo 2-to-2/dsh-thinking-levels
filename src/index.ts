@@ -3,6 +3,18 @@
  * `reasoning_effort` into every `agent/request` waterfall (levels: off / low /
  * high / max / auto), and records per-tool wall-clock durations for telemetry.
  *
+ * Model-aware since v0.5.0:
+ * - A model that does not advertise reasoning metadata (custom
+ *   openai-completions routes such as Qwen3.6 without `reasoningEfforts`)
+ *   NEVER receives a `reasoningEffort` — dsh rejects unsupported efforts per
+ *   request (UNSUPPORTED_REASONING_EFFORT). Unsupported fields are stripped.
+ * - Manual selections pass through unchanged, including `low` on dsh rc.7+
+ *   where the level is native.
+ * - The auto scheduler never picks `low` (no surprise low injection).
+ * - On rc.6-era adapters (efforts without `low`) a configurer-confirmed model
+ *   override may advertise `low` so the selector shows it and the passthrough
+ *   is admitted by request validation.
+ *
  * Extension points used (verified in deepseek-ai/deepseek-harness):
  * - `agent/request` waterfall (packages/core/agent-loop/src/agent.ts
  *   buildRequest): each listener may return a modified GenerateOptions for
@@ -13,8 +25,23 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { assertEffortId, decideEffort, isEffortId, type EffortId } from './thinking-level.ts'
+import { assertEffortId, reasoningEffortSupported, resolveEffortInjection, type EffortId } from './thinking-level.ts'
 import { recentToolCalls } from './session-events.ts'
+
+/** One configurer-confirmed capability override for a `provider/model` key. */
+export interface ModelCapabilityOverride {
+  /** Manual override of the vision-model classification (auto: inputModalities). */
+  vision?: boolean
+  /** Manual override of the thinking-model classification. */
+  thinking?: boolean
+  /**
+   * Manual confirmation of the supported effort levels. `false` marks a
+   * non-reasoning model; a list names the levels the API accepts (rc.6-era
+   * adapters may then advertise missing ones, e.g. `low`). Absent keeps the
+   * adapter-advertised list.
+   */
+  efforts?: false | Exclude<EffortId, 'auto'>[]
+}
 
 /** Plugin settings. */
 export interface ThinkingLevelsConfig {
@@ -25,7 +52,11 @@ export interface ThinkingLevelsConfig {
   allowDowngrade: boolean
   /** Scheduler preference: allow lifting above the `high` hub to `max`. */
   allowUpgrade: boolean
+  /** Configurer-confirmed capability overrides, keyed `provider/model`. */
+  models: Record<string, ModelCapabilityOverride>
 }
+
+const effortId = z.union(['off', 'low', 'high', 'max'])
 
 /**
  * Composition-entry schema: what a dsh profile may configure at assembly
@@ -38,6 +69,12 @@ export const Config: z<ThinkingLevelsConfig> = z.object({
   level: z.union(['off', 'low', 'high', 'max', 'auto']).default('auto'),
   allowDowngrade: z.boolean().default(true),
   allowUpgrade: z.boolean().default(false),
+  models: z.dict(z.object({
+    // schemastery fields are optional unless marked `.required()`.
+    vision: z.boolean(),
+    thinking: z.boolean(),
+    efforts: z.union([z.const(false), z.array(effortId)]),
+  })).default({}),
 })
 
 /** Settings defaults, kept in lockstep with the schema defaults above. */
@@ -46,6 +83,7 @@ export const DEFAULT_CONFIG: ThinkingLevelsConfig = {
   level: 'auto',
   allowDowngrade: true,
   allowUpgrade: false,
+  models: {},
 }
 
 /** Runtime-adjustable settings namespace: level + scheduler toggles. */
@@ -114,6 +152,15 @@ const TOOL_AGE_LIMIT_MS = 10 * 60 * 1000
  */
 const AUTO_EFFORT: { id: 'auto'; name: 'Auto' } = { id: 'auto', name: 'Auto' }
 
+/**
+ * The `low` level, advertised only for configurer-confirmed models whose
+ * adapter predates dsh rc.7 (efforts list without `low`). Advertising it makes
+ * the selector show Low and the harness request validation admit the
+ * passthrough; the adapter must serialize it (pi-ai openai-completions does,
+ * e.g. via `thinkingFormat: qwen` → enable_thinking + thinking_budget).
+ */
+const LOW_EFFORT: { id: 'low'; name: 'Low' } = { id: 'low', name: 'Low' }
+
 /** Minimal face of the llm service's adapter registrations (typed locally to avoid a host-package value import). */
 interface LlmRegistration {
   adapter: {
@@ -124,23 +171,97 @@ interface LlmRegistration {
 }
 
 /**
- * Advertise `auto` in the model directory (and the call-config validation it
- * feeds): wrap every registered adapter's `resolveModel` so the returned
- * `reasoning.efforts` include the mask level. Idempotent per adapter.
+ * Advertise `auto` (and, for configurer-confirmed rc.6-era models, `low`) in
+ * the model directory: wrap every registered adapter's `resolveModel` so the
+ * returned `reasoning.efforts` include the extra levels. Idempotent per
+ * adapter. `auto` is a mask the plugin resolves per request; `low` is only
+ * added when the model override confirms the level, so rc.7+ models (which
+ * already advertise low) and unconfirmed models stay untouched.
  * @param llm - the resolved `llm` service, when present.
+ * @param overrideFor - model override lookup, keyed `provider/model`.
  */
-function advertiseAutoEffort(llm: { adapters?: Map<string, LlmRegistration> } | undefined): void {
+function advertiseModelCapability(
+  llm: { adapters?: Map<string, LlmRegistration> } | undefined,
+  overrideFor: (provider: string, model: string) => ModelCapabilityOverride | undefined,
+): void {
   for (const registration of llm?.adapters?.values() ?? []) {
     const adapter = registration.adapter
     const original = adapter.resolveModel.bind(adapter)
     adapter.resolveModel = async (provider, model, signal) => {
       const info = await original(provider, model, signal)
       const reasoning = info.reasoning
-      if (reasoning !== undefined && !reasoning.efforts?.some((effort) => effort.id === 'auto')) {
-        info.reasoning = { ...reasoning, efforts: [...(reasoning.efforts ?? []), AUTO_EFFORT] }
+      if (reasoning === undefined) return info
+      const efforts = [...(reasoning.efforts ?? [])]
+      if (!efforts.some(effort => effort.id === 'auto')) efforts.push(AUTO_EFFORT)
+      const override = overrideFor(provider, model)
+      if (
+        override?.efforts !== undefined
+        && override.efforts !== false
+        && override.efforts.includes('low')
+        && !efforts.some(effort => effort.id === 'low')
+      ) {
+        efforts.push(LOW_EFFORT)
       }
+      info.reasoning = { ...reasoning, efforts }
       return info
     }
+  }
+}
+
+/** One resolved model's capability snapshot, cached per `provider/model`. */
+interface ModelCapability {
+  /** The model advertises at least one reasoning-effort level. */
+  supportsReasoning: boolean
+  /** The advertised effort ids, in selector order. */
+  efforts: readonly string[]
+  /** The model accepts image input (from `inputModalities`). */
+  vision: boolean
+}
+
+/** Minimal face of the llm service's model-info query (typed locally). */
+interface LlmServiceLike {
+  resolveModelInfo: (provider: string, model: string, signal?: unknown) => Promise<{
+    reasoning?: { efforts?: { id: string }[] }
+    inputModalities?: string[]
+  }>
+}
+
+const CAPABILITY_CACHE_KEY_SEPARATOR = '\u0000'
+
+/** A model that cannot be resolved is treated as non-reasoning: never inject. */
+const UNRESOLVABLE_CAPABILITY: ModelCapability = { supportsReasoning: false, efforts: [], vision: false }
+
+/** Runtime model-capability lookup with a per-route cache. */
+function capabilityResolver(ctx: Context): {
+  resolve: (provider: unknown, model: unknown) => Promise<ModelCapability>
+  clear: () => void
+} {
+  const cache = new Map<string, ModelCapability>()
+  return {
+    async resolve(provider, model) {
+      if (typeof provider !== 'string' || typeof model !== 'string') return UNRESOLVABLE_CAPABILITY
+      const key = `${provider}${CAPABILITY_CACHE_KEY_SEPARATOR}${model}`
+      const cached = cache.get(key)
+      if (cached !== undefined) return cached
+      const llm = ctx.get('llm') as LlmServiceLike | undefined
+      let capability: ModelCapability
+      try {
+        const info = await llm?.resolveModelInfo?.(provider, model)
+        const efforts = info?.reasoning?.efforts?.map(effort => effort.id) ?? []
+        capability = {
+          supportsReasoning: reasoningEffortSupported(info?.reasoning),
+          efforts,
+          vision: Array.isArray(info?.inputModalities) && info.inputModalities.includes('image'),
+        }
+      } catch {
+        capability = UNRESOLVABLE_CAPABILITY
+      }
+      cache.set(key, capability)
+      return capability
+    },
+    clear() {
+      cache.clear()
+    },
   }
 }
 
@@ -182,40 +303,67 @@ export function apply(ctx: Context, config: ThinkingLevelsConfig = DEFAULT_CONFI
     handler: (payload: Record<string, unknown>, next: () => unknown) => unknown | Promise<unknown>,
     options?: { prepend?: boolean },
   ) => void
+
+  // Model capability snapshots, cached per provider/model and cleared whenever
+  // the adapter registry changes (a route's reasoning metadata can move).
+  const capability = capabilityResolver(ctx)
+
   on('agent/request', async (payload, next) => {
-    const seed = await next() as { reasoningEffort?: unknown }
+    const seed = await next() as { provider?: unknown; model?: unknown; reasoningEffort?: unknown }
     const cfg = current()
     // `enabled` may flip at runtime through the settings namespace.
     if (!cfg.enabled) return seed
-    const selected = seed.reasoningEffort
-    // A wire level picked in the model selector (off/low/high/max) wins — the
-    // plugin only intervenes for the `auto` mask or when nothing was selected.
-    if (isEffortId(selected) && selected !== 'auto') return seed
-    // `auto` mask (or an unset/unknown value): resolve through the plugin's
-    // scheduler, falling back to the configured default level.
-    const base: EffortId = selected === 'auto' ? 'auto' : cfg.level
+
+    // Model-aware guard: never send a reasoning effort to a model that does
+    // not advertise one (custom openai-completions routes such as Qwen3.6).
+    // Unsupported fields are stripped, not sent; a resolved low/auto schedule
+    // only ever reaches models whose metadata admits the level.
+    const capabilityFor = await capability.resolve(seed.provider, seed.model)
     const calls = recentToolCalls(payload.agent)
-    const level = decideEffort({
+    const decision = resolveEffortInjection({
+      supportsReasoning: capabilityFor.supportsReasoning,
+      seedEffort: seed.reasoningEffort,
+      selected: cfg.level,
       recentCalls: calls,
-      selected: base,
       allowDowngrade: cfg.allowDowngrade,
       allowUpgrade: cfg.allowUpgrade,
     })
+    if (!decision.inject) {
+      // The model cannot take any effort: drop an inherited one so dsh does
+      // not reject the request (UNSUPPORTED_REASONING_EFFORT).
+      const stripped = { ...seed }
+      delete (stripped as { reasoningEffort?: unknown }).reasoningEffort
+      ctx.logger?.info?.(
+        '[thinking-levels] agent/request: model=%s/%s has no reasoning effort; stripped',
+        String(seed.provider), String(seed.model),
+      )
+      return stripped
+    }
     // Summary-only log: individual tool names/arg sizes are workflow metadata
     // that need not land in the host log; count and decision suffice.
-    ctx.logger?.info?.('[thinking-levels] agent/request: selected=%s calls=%d => level=%s', String(selected), calls.length, level)
-    return { ...seed, reasoningEffort: level }
+    ctx.logger?.info?.(
+      '[thinking-levels] agent/request: model=%s/%s selected=%s calls=%d => level=%s',
+      String(seed.provider), String(seed.model), String(seed.reasoningEffort), calls.length, decision.level,
+    )
+    return { ...seed, reasoningEffort: decision.level }
   }, { prepend: true })
 
-  // Advertise the `auto` mask in the model directory so the session model
-  // selector offers it alongside Off/Low/High/Max. Adapters may register after
-  // this plugin's apply (the load order differs between the CLI and DSH
-  // Desktop), so the wrapper also re-runs on every `llm/adapters-updated`.
+  // Advertise the `auto` mask (and, for configurer-confirmed rc.6-era models,
+  // `low`) in the model directory so the session model selector offers them
+  // alongside the adapter's native levels. Adapters may register after this
+  // plugin's apply (the load order differs between the CLI and DSH Desktop),
+  // so the wrapper also re-runs on every `llm/adapters-updated`.
   const llm = ctx.get('llm') as { adapters?: Map<string, LlmRegistration> } | undefined
-  advertiseAutoEffort(llm)
+  const overrideFor = (provider: string, model: string): ModelCapabilityOverride | undefined =>
+    current().models[`${provider}/${model}`]
+  advertiseModelCapability(llm, overrideFor)
   const onAny = ctx.on as unknown as (event: string, listener: (...args: never[]) => unknown) => void
   onAny('llm/adapters-updated', () => {
-    advertiseAutoEffort(ctx.get('llm') as { adapters?: Map<string, LlmRegistration> } | undefined)
+    capability.clear()
+    advertiseModelCapability(
+      ctx.get('llm') as { adapters?: Map<string, LlmRegistration> } | undefined,
+      overrideFor,
+    )
   })
 
   // Per-tool wall-clock telemetry: log tool/call -> tool/result durations.

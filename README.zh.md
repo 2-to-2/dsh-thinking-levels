@@ -18,6 +18,19 @@
 
 线缆档位事实（对照官方 DeepSeek 文档与 dsh `llm-deepseek` 适配器核实）：deepseek-v4-flash / v4-pro 上 `low` 1:1 生效，`medium` / `xhigh` 折叠到 `high`。适配器只接受 `off | low | high | max`，其他值抛 `UNSUPPORTED_REASONING_EFFORT`——`auto` 是插件的 mask 层，永不直接发送给 API，注入前必然解析为具体线缆档位。
 
+## 模型能力守卫（v0.5.0）
+
+插件**绝不向未声明推理能力的模型发送 `reasoning_effort`**。自定义 openai-completions 路由（如未配置 `reasoningEfforts` 的本地 Qwen3.6）通过 `ctx.llm.resolveModelInfo` 被判定为非推理模型，任何档位（继承的或调度产生的）都会被**剥离**而不是下发——dsh 的逐请求 `UNSUPPORTED_REASONING_EFFORT` 拒绝因此不会触发。不支持的字段绝不打进 API。
+
+版本行为：
+
+| dsh 版本 | `low` 处理 |
+|---|---|
+| rc.6（老） | 非原生：仅当配置 `models` 覆盖确认该档位时选择器才显示；注入展示（选择器 + 请求校验放行）后原样透传 |
+| rc.7+（新） | 原生：插件既不重写也不重复注入；手动选 `low` 原样透传 |
+
+auto 调度对支持的模型仍可选出 `low`——由上面的能力守卫负责让它远离不能接收它的模型。
+
 ## 模型选择器 Auto
 
 会话界面模型选择器（模型旁）现在提供 **Auto** 档位（由插件注入模型目录元数据，位于 `Off / Low / High / Max` 之后）：

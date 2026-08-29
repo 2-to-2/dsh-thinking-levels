@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { assertEffortId, decideEffort, isEffortId, toolDurationMs, type EffortDecisionInput } from '../src/thinking-level.ts'
+import {
+  assertEffortId, decideEffort, isEffortId, reasoningEffortSupported, resolveEffortInjection,
+  toolDurationMs, type EffortDecisionInput, type EffortInjectionInput,
+} from '../src/thinking-level.ts'
 
 const base = (over: Partial<EffortDecisionInput>): EffortDecisionInput => ({
   recentCalls: [],
@@ -105,5 +108,57 @@ describe('toolDurationMs', () => {
   it('reports the wall-clock delta and never negative jitter', () => {
     expect(toolDurationMs(1000, 2400)).toBe(1400)
     expect(toolDurationMs(2400, 1000)).toBe(0)
+  })
+})
+
+describe('reasoningEffortSupported', () => {
+  it('accepts a reasoning metadata object with efforts', () => {
+    expect(reasoningEffortSupported({ efforts: [{ id: 'off', name: 'Off' }, { id: 'low', name: 'Low' }] })).toBe(true)
+  })
+
+  it('rejects absent, empty, and malformed reasoning metadata', () => {
+    expect(reasoningEffortSupported(undefined)).toBe(false)
+    expect(reasoningEffortSupported(null)).toBe(false)
+    expect(reasoningEffortSupported({})).toBe(false)
+    expect(reasoningEffortSupported({ efforts: [] })).toBe(false)
+    expect(reasoningEffortSupported({ efforts: 'off' })).toBe(false)
+  })
+})
+
+describe('resolveEffortInjection — model capability guard', () => {
+  const base = (over: Partial<EffortInjectionInput>): EffortInjectionInput => ({
+    supportsReasoning: true,
+    seedEffort: undefined,
+    selected: 'auto',
+    recentCalls: [],
+    allowDowngrade: true,
+    allowUpgrade: true,
+    ...over,
+  })
+
+  it('strips the effort entirely for a model without reasoning support', () => {
+    // A custom openai-completions route (e.g. Qwen3.6 without reasoningEfforts)
+    // must never receive a reasoning_effort: dsh rejects it per request.
+    const decision = resolveEffortInjection(base({ supportsReasoning: false, seedEffort: 'low', selected: 'low' }))
+    expect(decision).toEqual({ inject: false })
+  })
+
+  it('passes a manual low selection through unchanged on a supporting model', () => {
+    // dsh rc.7+ advertises low natively; the plugin neither rewrites it nor
+    // re-schedules it.
+    expect(resolveEffortInjection(base({ seedEffort: 'low' }))).toEqual({ inject: true, level: 'low' })
+    expect(resolveEffortInjection(base({ seedEffort: 'max' }))).toEqual({ inject: true, level: 'max' })
+  })
+
+  it('resolves auto through the scheduler, which may still pick low', () => {
+    // The capability guard already stripped unsupported models, so a scheduled
+    // low only reaches models that advertise it.
+    expect(resolveEffortInjection(base({ seedEffort: undefined }))).toEqual({ inject: true, level: 'low' })
+    const heavy = [{ name: 'mcp__docs', argsSize: 4000 }]
+    expect(resolveEffortInjection(base({ seedEffort: 'auto', recentCalls: heavy }))).toEqual({ inject: true, level: 'max' })
+  })
+
+  it('falls back to the configured default when the seed carries no effort', () => {
+    expect(resolveEffortInjection(base({ seedEffort: undefined, selected: 'high' }))).toEqual({ inject: true, level: 'high' })
   })
 })

@@ -18,6 +18,24 @@ In a multi-step tool chain, the model re-thinks before **every** tool call — a
 
 Wire-level facts (verified against the official DeepSeek docs and dsh's `llm-deepseek` adapter): `low` maps 1:1 on deepseek-v4-flash / v4-pro, while `medium` / `xhigh` collapse onto `high`. The adapter accepts `off | low | high | max` and rejects anything else with `UNSUPPORTED_REASONING_EFFORT` — `auto` is the plugin's mask layer, never sent to the API, always resolved to a concrete wire level before injection.
 
+## Model-aware guard (v0.5.0)
+
+The plugin never sends a `reasoning_effort` to a model that does not advertise one. Custom
+openai-completions routes (e.g. a local Qwen3.6 without `reasoningEfforts`) are classified
+non-reasoning via `ctx.llm.resolveModelInfo`, and any effort — inherited or scheduled — is
+**stripped** instead of sent, so dsh's per-request `UNSUPPORTED_REASONING_EFFORT` rejection
+cannot fire. Unsupported fields are never passed to an API that cannot take them.
+
+Version behavior:
+
+| dsh version | `low` handling |
+|---|---|
+| rc.6 (old) | not native: the selector only shows it when a configurer-confirmed `models` override names it; the level is then advertised (selector + request validation) and passed through verbatim |
+| rc.7+ (new) | native: the plugin neither rewrites nor re-injects it; a manual `low` pick passes through unchanged |
+
+The auto scheduler may still pick `low` for supporting models — the capability guard above is
+what keeps it away from models that cannot take it.
+
 ## Model-selector Auto
 
 The session model selector (next to the model) now offers **Auto** after `Off / Low / High / Max` (injected into the model-directory metadata by the plugin):
@@ -83,9 +101,29 @@ Two surfaces share one schema:
     allowDowngrade: true   # let the scheduler drop below `high`
     allowUpgrade: false    # forbid the scheduler lifting to `max`
   ```
-- **Runtime** — the dsh-settings namespace `thinking-levels` (`level`, `allowDowngrade`, `allowUpgrade`, `enabled`): changes apply to the next model request, no restart needed. A visual editor is available under Settings → Plugins → configurable plugins.
+- **Runtime** — the dsh-settings namespace `thinking-levels` (`level`, `allowDowngrade`, `allowUpgrade`, `enabled`, `models`): changes apply to the next model request, no restart needed. A visual editor is available under Settings → Plugins → configurable plugins.
 
-Defaults: `{ enabled: true, level: 'auto', allowDowngrade: true, allowUpgrade: false }`.
+Per-model capability overrides (`models`, keyed `provider/model`) confirm what auto-detection
+finds; the configurer has the final word:
+
+```yaml
+config:
+  level: auto
+  models:
+    llm-pi-ai/Qwen3.6-35B-A3B:   # non-reasoning thinking model (thinking toggle + budget)
+      vision: false
+      thinking: true
+      efforts: false             # never send reasoning_effort (stripped at request time)
+    llm-pi-ai/Qwen3.8-27B:       # effort-capable model (rc.6-era adapter without low)
+      efforts: [low, high]       # confirm low → advertised in the selector + passed through
+```
+
+> For Qwen thinking on/off + budget, configure the **llm-pi-ai** route instead:
+> `compat.thinkingFormat: qwen` (→ wire `enable_thinking` + `thinking_budget` via
+> `thinkingBudgets`), or `qwen-chat-template` (→ `chat_template_kwargs.enable_thinking`) for
+> effort models like Qwen3.8-27B.
+
+Defaults: `{ enabled: true, level: 'auto', allowDowngrade: true, allowUpgrade: false, models: {} }`.
 
 > Semantics: the model-selector pick outranks the plugin's default level. Pick `auto` (mask) → plugin schedules; pick `off/low/high/max` → applied directly; pick nothing → the plugin's `level` default is used. `allowDowngrade` / `allowUpgrade` constrain `auto` scheduling only.
 
@@ -98,10 +136,10 @@ The host half does **not** value-depend on `@deepseek-ai/dsh-settings` (settings
 ```bash
 npm run lint        # eslint (typescript-eslint flat config)
 npm run typecheck   # tsc --noEmit
-npm test            # vitest — 21 tests
+npm test            # vitest — 28 tests
 ```
 
-Test coverage: level policy (manual pass-through, auto scheduler, validation, simple-tool boundary), session-event parsing (guards, window cap, malformed records), and the config schema (defaults lockstep, out-of-band rejection).
+Test coverage: level policy (manual pass-through, auto scheduler, validation, simple-tool boundary), the model-capability guard (`reasoningEffortSupported`, `resolveEffortInjection` stripping/passthrough), session-event parsing (guards, window cap, malformed records), and the config schema (defaults lockstep, out-of-band rejection, `models` overrides).
 
 ## License
 

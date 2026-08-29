@@ -3,23 +3,31 @@
  *
  * The measured bottleneck of tool calls in dsh is the model's THINKING phase
  * (~90% of the wall-clock time for simple tasks), not the tool execution
- * itself. DeepSeek's API exposes `reasoning_effort` in three wire levels
- * (low / high / max, plus `off` disables thinking; low shipped 2026-08-13 and
- * maps 1:1 per the official docs — medium/xhigh collapse onto high).
+ * itself. DeepSeek's API exposes `reasoning_effort` in wire levels
+ * (off / low / high / max; low shipped 2026-08-13 in dsh rc.7 — rc.6 and
+ * older adapters only accept off / high / max).
  *
  * The plugin offers FIVE user-facing levels:
  * - `off`  : thinking disabled (manual only — never auto-picked).
- * - `low`  : manual fix for simple chat tasks (cheap rounds stay cheap).
+ * - `low`  : cheap rounds stay cheap. Native since dsh rc.7; the manual pick
+ *            passes through unchanged (never rewritten), and the auto
+ *            scheduler may pick it for models that support it.
  * - `high` : manual fix, the official default effort.
  * - `max`  : manual fix for heavy work.
  * - `auto` : schedule per step from the recent tool-call history, between
  *            `low` / `high` / `max` (never `off`, never `auto` itself).
  *
+ * A request-level guard decides whether an effort may be injected at all:
+ * models that do not advertise reasoning metadata (custom openai-completions
+ * routes such as Qwen3.6 with no `reasoningEfforts`) must never receive a
+ * `reasoningEffort` — dsh rejects it per request with
+ * UNSUPPORTED_REASONING_EFFORT. Unsupported fields are stripped, not sent.
+ *
  * Kept dependency-free (pure inputs -> output) so the policy is unit-testable
  * in isolation; the plugin host feeds it the live session's recent calls.
  */
 
-/** The five user-facing thinking levels; the wire levels dsh forwards to DeepSeek plus the scheduler sentinel. */
+/** The five user-facing thinking levels; the wire levels dsh forwards plus the scheduler sentinel. */
 export type EffortId = 'off' | 'low' | 'high' | 'max' | 'auto'
 
 /** Wire levels the auto scheduler may pick (never `off`, never `auto`). */
@@ -49,13 +57,15 @@ export interface ToolCallSample {
   argsSize: number
 }
 
-/** Everything the policy needs to decide one request's level. */
+/**
+ * Everything the policy needs to decide one request's level.
+ */
 export interface EffortDecisionInput {
   /** Recent tool calls of the step (oldest first); empty for a fresh prompt. */
   recentCalls: readonly ToolCallSample[]
   /** The user-selected level: a fixed wire level, or `auto` for scheduling. */
   selected: EffortId
-  /** User preference: allow the scheduler to drop below the hub (`high`). */
+  /** Scheduler preference: allow the scheduler to drop below the hub (`high`). */
   allowDowngrade: boolean
   /** User preference: allow the scheduler to lift above the hub to `max`. */
   allowUpgrade: boolean
@@ -85,6 +95,10 @@ function simpleRatio(calls: readonly ToolCallSample[]): number {
  * - All/mostly simple tools -> `low` (when downgrades are allowed).
  * - Mixed or heavy tools -> `high` (the hub).
  * - Very heavy context (huge args) -> `max` (when upgrades are allowed).
+ *
+ * The scheduler MAY pick `low`: the request-level capability guard strips any
+ * effort from models that do not support it, so a scheduled `low` only ever
+ * reaches models that advertise the level.
  *
  * @param calls - recent tool calls of the step.
  * @param allowDowngrade - may drop below `high`.
@@ -119,6 +133,74 @@ export function decideEffort(input: EffortDecisionInput): EffortId {
   const { recentCalls, selected, allowDowngrade, allowUpgrade } = input
   if (selected !== 'auto') return selected
   return scheduleEffort(recentCalls, allowDowngrade, allowUpgrade)
+}
+
+/**
+ * Whether a model's resolved metadata advertises reasoning-effort support.
+ * dsh resolves `reasoning` to `undefined` for non-reasoning models (e.g. a
+ * hand-declared openai-completions route without `reasoningEfforts`), and
+ * rejects any requested effort for them per request. An empty efforts list is
+ * equally incapable and is treated as unsupported.
+ * @param reasoning - the `reasoning` field of a resolved model info.
+ * @returns true when the model advertises at least one effort level.
+ */
+export function reasoningEffortSupported(reasoning: unknown): boolean {
+  if (typeof reasoning !== 'object' || reasoning === null) return false
+  const efforts = (reasoning as { efforts?: unknown }).efforts
+  return Array.isArray(efforts) && efforts.length > 0
+}
+
+/** One request-level injection decision. */
+export interface EffortInjectionInput {
+  /** Whether the target model advertises reasoning-effort support. */
+  supportsReasoning: boolean
+  /** The `reasoningEffort` already present on the request seed, if any. */
+  seedEffort: unknown
+  /** Plugin-configured default level when the seed carries none. */
+  selected: EffortId
+  /** Recent tool calls of the step, for the auto scheduler. */
+  recentCalls: readonly ToolCallSample[]
+  /** Scheduler preference: allow the scheduler to drop below `high`. */
+  allowDowngrade: boolean
+  /** Scheduler preference: allow lifting above `high` to `max`. */
+  allowUpgrade: boolean
+}
+
+/** The resolved action for one `agent/request`. */
+export interface EffortInjectionDecision {
+  /** Keep/inject a `reasoningEffort` on the request (false = strip it). */
+  inject: boolean
+  /** The wire level to set, present when `inject` is true. */
+  level?: EffortId
+}
+
+/**
+ * Decide what one model request should do with `reasoningEffort`.
+ *
+ * - A model without reasoning support never receives the field: dsh would
+ *   throw UNSUPPORTED_REASONING_EFFORT, so the seed's inherited effort (from a
+ *   previous route or session header) is stripped.
+ * - A manual wire selection (off/low/high/max) passes through unchanged.
+ * - `auto` (or no selection) resolves through the scheduler; a scheduled `low`
+ *   only reaches models that advertise the level (the capability guard above
+ *   already stripped everything from non-supporting models).
+ *
+ * @param input - model capability plus the seed's current effort.
+ * @returns whether to inject and the level to set.
+ */
+export function resolveEffortInjection(input: EffortInjectionInput): EffortInjectionDecision {
+  const { supportsReasoning, seedEffort, selected } = input
+  if (!supportsReasoning) return { inject: false }
+  if (isEffortId(seedEffort) && seedEffort !== 'auto') {
+    return { inject: true, level: seedEffort }
+  }
+  const level = decideEffort({
+    recentCalls: input.recentCalls,
+    selected: seedEffort === 'auto' ? 'auto' : selected,
+    allowDowngrade: input.allowDowngrade,
+    allowUpgrade: input.allowUpgrade,
+  })
+  return { inject: true, level }
 }
 
 /** Wall-clock delta of one tool call, for the timing telemetry. */

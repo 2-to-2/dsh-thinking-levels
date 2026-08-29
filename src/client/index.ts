@@ -42,7 +42,12 @@ export function apply(ctx: ClientContext): void {
       locale: NS,
       inject: (): ThinkingLevelsCardInjected => {
         const scope = ctx.settingsScope.bind<ThinkingLevelsConfig>({ namespace: THINKING_LEVELS_NS })
-        return { scope }
+        // The llm-pi-ai namespace is bound read/write so the card can surface
+        // and edit custom-provider model capabilities (vision / thinking /
+        // effort levels / thinking format) without touching any official
+        // package — llm-pi-ai's own schema validates every write.
+        const piAiScope = ctx.settingsScope.bind<unknown>({ namespace: 'llm-pi-ai' })
+        return { scope, piAiScope }
       },
     }, ThinkingLevelsCard)
   })
