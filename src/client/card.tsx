@@ -42,6 +42,13 @@ export type ThinkingLevelsCardProps = PropsLocale<'thinking-levels'> & ThinkingL
 /** The five user-facing levels, in picker order. */
 const EFFORT_OPTIONS: readonly EffortId[] = ['off', 'low', 'high', 'max', 'auto']
 
+/**
+ * Effort-capable model id pattern (Qwen3.8-style): these models accept
+ * reasoning_effort levels; everything else (e.g. Qwen3.6) only takes the
+ * enable_thinking toggle, so the effort pickers stay hidden for them.
+ */
+const EFFORT_MODEL_PATTERN = /qwen3[._-]?8/i
+
 /** The effort levels the capability editor offers: off (disable thinking) plus the Qwen3.8-style wire levels (medium/xhigh collapse onto high upstream). */
 const CAPABILITY_LEVELS = ['off', 'low', 'high', 'max'] as const
 type CapabilityLevel = typeof CAPABILITY_LEVELS[number]
@@ -321,7 +328,10 @@ function ModelCapabilities(props: {
       {entries.map(({ providerId, index, model }) => {
         const efforts = effortsOf(model)
         const thinking = typeof efforts === 'object'
-        const supportsEffort = supportsEffortOf(model)
+        // The effort switch is manual (Qwen3.6: off → no pickers; Qwen3.8-27B:
+        // on → pick levels), defaulting from an id heuristic (3.8-style → on).
+        const modelId = typeof model['id'] === 'string' ? model['id'] : ''
+        const supportsEffort = supportsEffortOf(model) || EFFORT_MODEL_PATTERN.test(modelId)
         const input = model['input']
         const vision = Array.isArray(input) && input.includes('image')
         const format = formatOf(model)
@@ -404,6 +414,11 @@ function ModelCapabilities(props: {
                                       ? [...current, level]
                                       : current.filter(at => at !== level)
                                     row['reasoningEfforts'] = effortTableOf(next)
+                                    // Picking a level is a declaration of
+                                    // effort support; keep the wire flag in sync.
+                                    patchCompat(row, (compat) => {
+                                      compat['supportsReasoningEffort'] = true
+                                    })
                                   })
                                 }}
                               />
