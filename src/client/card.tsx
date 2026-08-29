@@ -42,7 +42,7 @@ export type ThinkingLevelsCardProps = PropsLocale<'thinking-levels'> & ThinkingL
 /** The five user-facing levels, in picker order. */
 const EFFORT_OPTIONS: readonly EffortId[] = ['off', 'low', 'high', 'max', 'auto']
 
-/** The effort levels the capability editor offers, in escalation order. */
+/** The effort levels the capability editor offers: off (disable thinking) plus the Qwen3.8-style wire levels (medium/xhigh collapse onto high upstream). */
 const CAPABILITY_LEVELS = ['off', 'low', 'high', 'max'] as const
 type CapabilityLevel = typeof CAPABILITY_LEVELS[number]
 
@@ -191,10 +191,18 @@ function effortLevelsOf(model: Record<string, unknown>): CapabilityLevel[] {
   return CAPABILITY_LEVELS.filter(level => table[level] !== undefined)
 }
 
-/** Build a `reasoningEfforts` table from checked levels: `off` → null, others → same-name wire. */
-function effortTableOf(levels: readonly CapabilityLevel[]): Record<string, unknown> | undefined {
-  if (levels.length === 0) return undefined
-  return Object.fromEntries(levels.map(level => [level, level === 'off' ? null : level]))
+/**
+ * Build a `reasoningEfforts` table from checked levels: `off` maps to `null`
+ * (omit the reasoning option → enable_thinking false), the others keep their
+ * own name as the wire spelling. pi-ai rejects a table offering nothing beyond
+ * `off`, so a selection of only `off` falls back to the default `high` level.
+ */
+function effortTableOf(levels: readonly CapabilityLevel[]): Record<string, unknown> {
+  const table = Object.fromEntries(levels.map(level => [level, level === 'off' ? null : level]))
+  if (Object.keys(table).length === 0 || Object.keys(table).every(level => table[level] === null)) {
+    return { ...table, high: 'high' }
+  }
+  return table
 }
 
 /** The `compat.thinkingFormat` a row declares, or `undefined` when it declares none. */
@@ -203,6 +211,26 @@ function formatOf(model: Record<string, unknown>): string | undefined {
   if (typeof compat !== 'object' || compat === null || Array.isArray(compat)) return undefined
   const format = (compat as Record<string, unknown>)['thinkingFormat']
   return typeof format === 'string' ? format : undefined
+}
+
+/** Whether a row declares `compat.supportsReasoningEffort` (the wire sends reasoning_effort). */
+function supportsEffortOf(model: Record<string, unknown>): boolean {
+  const compat = model['compat']
+  if (typeof compat !== 'object' || compat === null || Array.isArray(compat)) return false
+  return (compat as Record<string, unknown>)['supportsReasoningEffort'] === true
+}
+
+/** Patch one row's `compat` object, merging rather than replacing sibling fields. */
+function patchCompat(
+  row: Record<string, unknown>,
+  patch: (compat: Record<string, unknown>) => void,
+): void {
+  const compat = typeof row['compat'] === 'object' && row['compat'] !== null && !Array.isArray(row['compat'])
+    ? { ...(row['compat'] as Record<string, unknown>) }
+    : {}
+  patch(compat)
+  if (Object.keys(compat).length === 0) delete row['compat']
+  else row['compat'] = compat
 }
 
 /** The user-layer `providers` value of the llm-pi-ai namespace, when present. */
@@ -292,7 +320,8 @@ function ModelCapabilities(props: {
       <p style={hintStyle}>{t('card.capabilities.hint')}</p>
       {entries.map(({ providerId, index, model }) => {
         const efforts = effortsOf(model)
-        const thinking = efforts === false ? 'off' : typeof efforts === 'object' ? 'on' : 'inherit'
+        const thinking = typeof efforts === 'object'
+        const supportsEffort = supportsEffortOf(model)
         const input = model['input']
         const vision = Array.isArray(input) && input.includes('image')
         const format = formatOf(model)
@@ -315,62 +344,77 @@ function ModelCapabilities(props: {
                 <span>{t('card.capabilities.vision')}</span>
               </label>
             </div>
-            <label style={fieldStyle}>
-              <span style={fieldLabelStyle}>{t('card.capabilities.thinking')}</span>
-              <select
-                style={controlStyle}
-                value={thinking}
+            <label style={checkRowStyle}>
+              <input
+                type="checkbox"
+                checked={thinking}
                 disabled={readonly}
                 onChange={(event) => {
-                  const state = event.currentTarget.value as 'inherit' | 'on' | 'off'
+                  const next = event.currentTarget.checked
                   patchModel(providerId, index, (row) => {
-                    if (state === 'inherit') {
-                      delete row['reasoningEfforts']
-                    } else if (state === 'off') {
+                    if (!next) {
+                      // Thinking off: a non-reasoning model never takes an effort.
                       row['reasoningEfforts'] = false
                     } else {
-                      // Keep already-declared levels; without one, a sane
-                      // default table (off + high) appears so the row is valid.
-                      row['reasoningEfforts'] = effortTableOf(effortLevelsOf(row)) ?? { off: null, high: 'high' }
+                      // Thinking on: a table must exist so dsh accepts the level
+                      // that drives the wire's enable_thinking. Qwen3.6-style
+                      // models keep the fixed default (high); effort-capable
+                      // ones (Qwen3.8) pick levels below.
+                      row['reasoningEfforts'] = effortTableOf(effortLevelsOf(row))
                     }
                   })
                 }}
-              >
-                <option value="inherit">{t('card.capabilities.thinking.inherit')}</option>
-                <option value="on">{t('card.capabilities.thinking.on')}</option>
-                <option value="off">{t('card.capabilities.thinking.off')}</option>
-              </select>
+              />
+              <span>{t('card.capabilities.thinking')}</span>
             </label>
-            {thinking === 'on'
+            {thinking
               ? (
-                <div style={fieldStyle}>
-                  <span style={fieldLabelStyle}>{t('card.capabilities.efforts')}</span>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px' }}>
-                    {CAPABILITY_LEVELS.map(level => (
-                      <label key={level} style={checkRowStyle}>
-                        <input
-                          type="checkbox"
-                          checked={effortLevelsOf(model).includes(level)}
-                          disabled={readonly}
-                          onChange={(event) => {
-                            patchModel(providerId, index, (row) => {
-                              const current = effortLevelsOf(row)
-                              const next = event.currentTarget.checked
-                                ? [...current, level]
-                                : current.filter(at => at !== level)
-                              // An empty table is not a valid pi-ai declaration,
-                              // so dropping the last level removes the field.
-                              const table = effortTableOf(next)
-                              if (table === undefined) delete row['reasoningEfforts']
-                              else row['reasoningEfforts'] = table
-                            })
-                          }}
-                        />
-                        <span>{level.charAt(0).toUpperCase() + level.slice(1)}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
+                <>
+                  <label style={checkRowStyle}>
+                    <input
+                      type="checkbox"
+                      checked={supportsEffort}
+                      disabled={readonly}
+                      onChange={(event) => {
+                        const next = event.currentTarget.checked
+                        patchModel(providerId, index, (row) => {
+                          patchCompat(row, (compat) => {
+                            compat['supportsReasoningEffort'] = next
+                          })
+                        })
+                      }}
+                    />
+                    <span>{t('card.capabilities.supportsEffort')}</span>
+                  </label>
+                  {supportsEffort
+                    ? (
+                      <div style={fieldStyle}>
+                        <span style={fieldLabelStyle}>{t('card.capabilities.efforts')}</span>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px' }}>
+                          {CAPABILITY_LEVELS.map(level => (
+                            <label key={level} style={checkRowStyle}>
+                              <input
+                                type="checkbox"
+                                checked={effortLevelsOf(model).includes(level)}
+                                disabled={readonly}
+                                onChange={(event) => {
+                                  patchModel(providerId, index, (row) => {
+                                    const current = effortLevelsOf(row)
+                                    const next = event.currentTarget.checked
+                                      ? [...current, level]
+                                      : current.filter(at => at !== level)
+                                    row['reasoningEfforts'] = effortTableOf(next)
+                                  })
+                                }}
+                              />
+                              <span>{level.charAt(0).toUpperCase() + level.slice(1)}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                    : null}
+                </>
               )
               : null}
             <label style={fieldStyle}>
@@ -382,17 +426,10 @@ function ModelCapabilities(props: {
                 onChange={(event) => {
                   const next = event.currentTarget.value
                   patchModel(providerId, index, (row) => {
-                    const compat = typeof row['compat'] === 'object' && row['compat'] !== null && !Array.isArray(row['compat'])
-                      ? { ...(row['compat'] as Record<string, unknown>) }
-                      : {}
-                    if (next === 'inherit') {
-                      delete compat['thinkingFormat']
-                      if (Object.keys(compat).length === 0) delete row['compat']
-                      else row['compat'] = compat
-                    } else {
-                      compat['thinkingFormat'] = next
-                      row['compat'] = compat
-                    }
+                    patchCompat(row, (compat) => {
+                      if (next === 'inherit') delete compat['thinkingFormat']
+                      else compat['thinkingFormat'] = next
+                    })
                   })
                 }}
               >
