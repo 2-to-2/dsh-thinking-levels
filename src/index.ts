@@ -10,8 +10,10 @@
  *   NEVER receives a `reasoningEffort` — dsh rejects unsupported efforts per
  *   request (UNSUPPORTED_REASONING_EFFORT). Unsupported fields are stripped.
  * - Manual selections pass through unchanged, including `low` on dsh rc.7+
- *   where the level is native. `on` (the enable-thinking toggle) is clamped
- *   to the model's default strength instead of an exact wire level.
+ *   where the level is native. `on` (the enable-thinking toggle) is never a
+ *   wire level: on a toggle-only model it injects the advertised `high`
+ *   (serialized as enable_thinking, no reasoning_effort); elsewhere it is
+ *   stripped.
  * - The auto scheduler never picks `low` (no surprise low injection).
  * - On rc.6-era adapters (efforts without `low`) a configurer-confirmed model
  *   override may advertise `low` so the selector shows it and the passthrough
@@ -212,16 +214,18 @@ function advertiseModelCapability(
       if (reasoning === undefined) return info
       const piCap = piAiFor(provider, model)
       if (piCap?.thinkingOn === true && piCap.supportsEffort === false) {
-        // Toggle-only model (Qwen3.6-style): the selector shows Off/On. `on`
-        // is NOT an effort level — it only flips enable_thinking true (the
-        // thinking format serializes it without a reasoning_effort). An
-        // effort-capable model never advertises `on`; a manual `on` pick on
-        // one is stripped at request time.
+        // Toggle-only model (Qwen3.6 / mimo-v2.5 style): the selector shows
+        // Off/On. The On pick MUST be a level the provider's own request path
+        // accepts — pi-ai resolves only its fixed seven levels and rejects
+        // anything else per stream (`UNSUPPORTED_REASONING_EFFORT`). `high` is
+        // that level: because the model declares supportsReasoningEffort:
+        // false, pi-ai serializes a non-off effort as enable_thinking only —
+        // no reasoning_effort is sent, which is exactly the toggle semantics.
         info.reasoning = {
           ...reasoning,
           efforts: [
             { id: 'off', name: 'Off' },
-            { id: 'on', name: 'On' },
+            { id: 'high', name: 'On' },
           ],
         }
         return info

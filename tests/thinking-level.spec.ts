@@ -180,18 +180,19 @@ describe('resolveEffortInjection — model capability guard', () => {
   })
 
   it('strips Off on a toggle-only model (pi-ai omits the effort to disable thinking)', () => {
-    const toggle = { efforts: ['off', 'on'], toggleOnly: true }
+    const toggle = { efforts: ['off', 'high'], toggleOnly: true }
     expect(resolveEffortInjection(base({ ...toggle, seedEffort: 'off' }))).toEqual({ inject: false })
-    expect(resolveEffortInjection(base({ ...toggle, seedEffort: 'on' }))).toEqual({ inject: true, level: 'on' })
+    expect(resolveEffortInjection(base({ ...toggle, seedEffort: 'on' }))).toEqual({ inject: true, level: 'high' })
   })
 
-  it('passes On through on a toggle-only model, and never lifts it to an effort level', () => {
-    // `on` is the enable-thinking toggle: it must never be sent as an effort
-    // wire value — on a toggle-only model it stays `on` (enable_thinking true
-    // via the thinking format, no reasoning_effort), and on an effort-capable
-    // model it is stripped (never clamped to high).
-    const toggle = { efforts: ['off', 'on'], toggleOnly: true }
-    expect(resolveEffortInjection(base({ ...toggle, seedEffort: 'on' }))).toEqual({ inject: true, level: 'on' })
+  it('maps the On toggle to high on a toggle-only model, and strips it on effort-capable models', () => {
+    // `on` is the enable-thinking toggle, never a wire level. On a toggle-only
+    // model (which advertises off/high — the selector renders high as "On") it
+    // injects high; pi-ai serializes a non-off effort as enable_thinking with
+    // no reasoning_effort. An effort-capable model never advertises `on`, so a
+    // stray `on` pick is stripped, never lifted to high.
+    const toggle = { efforts: ['off', 'high'], toggleOnly: true }
+    expect(resolveEffortInjection(base({ ...toggle, seedEffort: 'on' }))).toEqual({ inject: true, level: 'high' })
     expect(resolveEffortInjection(base({ ...toggle, seedEffort: 'off' }))).toEqual({ inject: false })
     // An effort-capable model advertises no `on`: a stray manual pick is
     // stripped, not lifted to high.
@@ -199,13 +200,13 @@ describe('resolveEffortInjection — model capability guard', () => {
       .toEqual({ inject: false })
   })
 
-  it('clamps a scheduled low on a toggle-only model to On (the only thinking level)', () => {
-    // Toggle-only models advertise off/on only: a scheduled low lifts to `on`,
-    // which enables thinking without sending a think effort.
-    const toggle = { efforts: ['off', 'on'], toggleOnly: true }
-    expect(resolveEffortInjection(base({ ...toggle, seedEffort: undefined }))).toEqual({ inject: true, level: 'on' })
+  it('clamps a scheduled low on a toggle-only model to high (the only thinking level)', () => {
+    // Toggle-only models advertise off/high only: a scheduled low lifts to
+    // `high`, which enables thinking without sending a think effort.
+    const toggle = { efforts: ['off', 'high'], toggleOnly: true }
+    expect(resolveEffortInjection(base({ ...toggle, seedEffort: undefined }))).toEqual({ inject: true, level: 'high' })
     const heavy = [{ name: 'mcp__docs', argsSize: 4000 }]
-    expect(resolveEffortInjection(base({ ...toggle, seedEffort: 'auto', recentCalls: heavy }))).toEqual({ inject: true, level: 'on' })
+    expect(resolveEffortInjection(base({ ...toggle, seedEffort: 'auto', recentCalls: heavy }))).toEqual({ inject: true, level: 'high' })
   })
 
   it('passes the extended wire levels through when the model advertises them', () => {

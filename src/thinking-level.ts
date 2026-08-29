@@ -179,9 +179,10 @@ export interface EffortInjectionInput {
   /** The model's advertised effort ids (including plugin masks like `auto`). */
   efforts: readonly string[]
   /**
-   * The model takes only an on/off toggle (Qwen3.6-style): `off` must be
-   * stripped (pi-ai expresses it by omitting the effort, not by sending an
-   * `off` value), and `on` maps to the highest advertised thinking level.
+   * The model takes only an on/off thinking toggle (Qwen3.6 / mimo-v2.5
+   * style): `off` must be stripped (pi-ai expresses it by omitting the effort,
+   * not by sending an `off` value), and `on` maps to the advertised `high`
+   * level (pi-ai serializes it as enable_thinking, no reasoning_effort).
    */
   toggleOnly: boolean
 }
@@ -198,9 +199,9 @@ export interface EffortInjectionDecision {
  * Clamp a level to the ones the model actually advertises. The adapter rejects
  * any other value per request (UNSUPPORTED_REASONING_EFFORT), so an unsupported
  * scheduled level is lifted to the model's highest advertised thinking level
- * (a toggle-only model advertises off/on → a scheduled low becomes `on`, which
- * enables thinking without sending a think effort), and a model advertising no
- * thinking level at all yields nothing (strip).
+ * (a toggle-only model advertises off/high → a scheduled low becomes `high`,
+ * which enables thinking without sending a think effort), and a model
+ * advertising no thinking level at all yields nothing (strip).
  * @param level - the scheduled or manually selected level.
  * @param efforts - the model's advertised effort ids (escalation-ordered).
  * @returns the level to inject, or `undefined` when the model cannot take it.
@@ -208,8 +209,7 @@ export interface EffortInjectionDecision {
 export function clampToEfforts(level: EffortId, efforts: readonly string[]): EffortId | undefined {
   if (efforts.includes(level)) return level
   // off and auto are not thinking levels; the advertised list is
-  // escalation-ordered. `on` may appear only on toggle-only models, where it
-  // is the (single) thinking level.
+  // escalation-ordered.
   const thinking = efforts.filter(id => id !== 'off' && id !== 'auto')
   if (thinking.length === 0) return undefined
   return thinking[thinking.length - 1] as EffortId
@@ -223,9 +223,11 @@ export function clampToEfforts(level: EffortId, efforts: readonly string[]): Eff
  *   previous route or session header) is stripped.
  * - A manual wire selection passes through unchanged when the model advertises
  *   it; an unsupported manual pick is stripped rather than clamped (the user
- *   asked for that exact level). `on` is the exception — it is the
- *   enable-thinking toggle, clamped to the model's default strength (`high` or
- *   its highest thinking level) rather than an exact wire value.
+ *   asked for that exact level).
+ * - `on` is the enable-thinking toggle, never a wire level: on a toggle-only
+ *   model it injects the advertised thinking level (`high`), which the wire
+ *   serializes as enable_thinking without a reasoning_effort; an
+ *   effort-capable model does not advertise `on`, so it is stripped.
  * - `auto` (or no selection) resolves through the scheduler; the result is
  *   clamped to the model's advertised levels, so a scheduled `low` on a model
  *   that only takes off/high (Qwen3.6) becomes `high` instead of an error.
@@ -237,17 +239,23 @@ export function resolveEffortInjection(input: EffortInjectionInput): EffortInjec
   const { supportsReasoning, seedEffort, selected, efforts, toggleOnly } = input
   if (!supportsReasoning) return { inject: false }
   if (toggleOnly && seedEffort === 'off') {
-    // Qwen3.6-style Off: pi-ai has no `off` wire level — it omits the effort,
-    // which flips enable_thinking to false. Strip instead of injecting.
+    // Toggle-only Off: the provider omits the effort, which flips
+    // enable_thinking to false. Strip instead of injecting.
     return { inject: false }
+  }
+  if (seedEffort === 'on') {
+    // The On toggle: enable thinking at the provider's default strength. On a
+    // toggle-only model that is the advertised `high` (pi-ai serializes it as
+    // enable_thinking, no reasoning_effort); effort-capable models never
+    // advertise `on`, so a stray `on` is stripped, never lifted to `high`.
+    return toggleOnly && efforts.includes('high')
+      ? { inject: true, level: 'high' }
+      : { inject: false }
   }
   if (isEffortId(seedEffort) && seedEffort !== 'auto') {
     // A manual pick is the user asking for that exact level: pass it through
     // only when the model advertises it, strip it otherwise (no clamping of an
-    // explicit choice). `on` is advertised only by toggle-only models — there
-    // it enables thinking (enable_thinking true) without sending a think
-    // effort; effort-capable models never advertise `on`, so a stray `on` is
-    // stripped rather than lifted to `high`.
+    // explicit choice).
     return efforts.includes(seedEffort)
       ? { inject: true, level: seedEffort }
       : { inject: false }
