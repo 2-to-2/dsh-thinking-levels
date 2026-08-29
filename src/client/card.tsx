@@ -34,6 +34,11 @@ export interface ThinkingLevelsCardInjected {
   scope: SettingsScope<ThinkingLevelsConfig>
   /** The `llm-pi-ai` settings namespace, read and written for model capabilities. */
   piAiScope: SettingsScope<unknown>
+  /**
+   * The `llm-openai-completions` takeover list, read so the model editor
+   * surfaces only routes the openai-completions adapter actually serves.
+   */
+  takeoverScope: SettingsScope<unknown>
 }
 
 /** Full props: locale seat + the injected scopes. */
@@ -278,6 +283,16 @@ function providersOf(snapshot: unknown): Record<string, unknown> {
     : {}
 }
 
+/** The provider ids the openai-completions adapter is set up to serve. */
+function takeoverListOf(snapshot: unknown): string[] {
+  if (typeof snapshot !== 'object' || snapshot === null) return []
+  const value = (snapshot as { value?: unknown }).value
+  if (typeof value !== 'object' || value === null) return []
+  const section = value as { enabled?: unknown; providers?: unknown }
+  if (section.enabled !== true || !Array.isArray(section.providers)) return []
+  return section.providers.filter((id): id is string => typeof id === 'string')
+}
+
 /** One flattened capability entry: a provider's model at an array index. */
 interface CapabilityEntry {
   providerId: string
@@ -342,17 +357,32 @@ function ChevronIcon({ open }: { open: boolean }): JSX.Element {
  */
 function ModelCapabilities(props: {
   scope: SettingsScope<unknown>
+  takeoverScope: SettingsScope<unknown>
   t: (key: string) => string
   readonly: boolean
 }): JSX.Element {
-  const { scope, t, readonly } = props
+  const { scope, takeoverScope, t, readonly } = props
   const snapshot = useSyncExternalStore(
     (listener) => scope.subscribe(listener),
     () => scope.getSnapshot(),
   )
+  const takeover = useSyncExternalStore(
+    (listener) => takeoverScope.subscribe(listener),
+    () => takeoverScope.getSnapshot(),
+  )
   const unavailable = snapshot.status === 'unavailable'
   const providers = snapshot.status === 'ready' ? providersOf(snapshot) : {}
-  const allEntries = entriesOf(providers)
+  // Only routes the openai-completions adapter actually serves are editable
+  // here: the takeover list (`enabled: true` + provider ids). A provider that
+  // pi-ai serves natively (e.g. mimo via xiaomi) is NOT shown — its reasoning
+  // stays pi-ai-managed (off/high visible, effort validated by pi-ai).
+  const takeoverList = takeover.status === 'ready'
+    ? takeoverListOf(takeover)
+    : []
+  const filteredProviders = takeoverList.length === 0
+    ? {}
+    : Object.fromEntries(Object.entries(providers).filter(([id]) => takeoverList.includes(id)))
+  const allEntries = entriesOf(filteredProviders)
 
   // UI-only state: provider/model expansion, the wire drafts, and the query.
   const [query, setQuery] = useState('')
@@ -719,7 +749,7 @@ function ModelCapabilities(props: {
  * default so the plugin tab stays a tidy list of drawers.
  * @param props - locale copy and the injected scopes.
  */
-export function ThinkingLevelsCard({ t, scope, piAiScope }: ThinkingLevelsCardProps): JSX.Element {
+export function ThinkingLevelsCard({ t, scope, piAiScope, takeoverScope }: ThinkingLevelsCardProps): JSX.Element {
   const [open, setOpen] = useState(false)
   const snapshot = useSyncExternalStore(
     (listener) => scope.subscribe(listener),
@@ -830,7 +860,7 @@ export function ThinkingLevelsCard({ t, scope, piAiScope }: ThinkingLevelsCardPr
                   </div>
                   {!snapshot.writable
                     && <p style={{ margin: '8px 0 0', fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' }}>{t('card.readonly')}</p>}
-                  <ModelCapabilities scope={piAiScope} t={t} readonly={readonly} />
+                  <ModelCapabilities scope={piAiScope} takeoverScope={takeoverScope} t={t} readonly={readonly} />
                 </>
               )}
           </div>

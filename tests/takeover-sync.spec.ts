@@ -4,6 +4,7 @@ import {
   identifyTakeoverProviders,
   isCustomOpenAiGateway,
   nextTakeoverSection,
+  takeoverProvidersOf,
   type PiAiSection,
   type TakeoverSection,
 } from '../src/takeover-sync.ts'
@@ -94,5 +95,24 @@ describe('nextTakeoverSection', () => {
   it('returns the previous section unchanged when already covered', () => {
     const prev: TakeoverSection = { enabled: true, providers: ['local35b'] }
     expect(nextTakeoverSection(prev, ['local35b'])).toBe(prev)
+  })
+})
+
+describe('takeoverProvidersOf', () => {
+  it('returns the enabled provider list', () => {
+    expect(takeoverProvidersOf({ enabled: true, providers: ['local35b', 'other'] }))
+      .toEqual(['local35b', 'other'])
+  })
+
+  it('returns an empty list when disabled', () => {
+    expect(takeoverProvidersOf({ enabled: false, providers: ['local35b'] })).toEqual([])
+  })
+
+  it('returns null when the namespace is unregistered (adapter plugin absent)', () => {
+    expect(takeoverProvidersOf(undefined)).toBeNull()
+  })
+
+  it('filters non-string provider entries', () => {
+    expect(takeoverProvidersOf({ enabled: true, providers: ['a', 3, null] })).toEqual(['a'])
   })
 })

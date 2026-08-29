@@ -47,7 +47,10 @@ export function apply(ctx: ClientContext): void {
         // effort levels / thinking format) without touching any official
         // package — llm-pi-ai's own schema validates every write.
         const piAiScope = ctx.settingsScope.bind<unknown>({ namespace: 'llm-pi-ai' })
-        return { scope, piAiScope }
+        // The llm-openai-completions takeover list, read so the model editor
+        // shows only routes the openai-completions adapter actually serves.
+        const takeoverScope = ctx.settingsScope.bind<unknown>({ namespace: 'llm-openai-completions' })
+        return { scope, piAiScope, takeoverScope }
       },
     }, ThinkingLevelsCard)
   })

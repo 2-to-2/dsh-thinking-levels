@@ -137,3 +137,23 @@ export function nextTakeoverSection(
   if (base.enabled && merged.length === base.providers.length) return base
   return { enabled: true, providers: merged }
 }
+
+/**
+ * The providers the openai-completions adapter is currently set up to take
+ * over, from the live `llm-openai-completions` settings namespace. Used to
+ * gate thinking-levels' own behavior: a route OUTSIDE the takeover list is
+ * served by pi-ai with its native reasoning semantics (off/high visible,
+ * pi-ai validates and serializes the effort) and must not be folded into an
+ * Off/On toggle or have efforts injected by this plugin.
+ * @param section - the live llm-openai-completions section, if registered.
+ * @returns the provider ids the adapter will serve, or `null` when the
+ *   namespace is unregistered (adapter plugin absent).
+ */
+export function takeoverProvidersOf(
+  section: { enabled?: unknown; providers?: unknown } | undefined,
+): string[] | null {
+  if (section === undefined) return null
+  if (section.enabled !== true) return []
+  if (!Array.isArray(section.providers)) return []
+  return section.providers.filter((id): id is string => typeof id === 'string')
+}

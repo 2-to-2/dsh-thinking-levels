@@ -36,6 +36,7 @@ import {
   nextTakeoverSection,
   PI_AI_NAMESPACE,
   TAKEOVER_NAMESPACE,
+  takeoverProvidersOf,
   type PiAiSection,
   type TakeoverSection,
 } from './takeover-sync.ts'
@@ -277,14 +278,38 @@ interface SettingsReadLike {
 }
 
 /**
+ * The providers currently taken over by dsh-llm-openai-completions, read
+ * lazily from the live `llm-openai-completions` namespace. `null` when the
+ * namespace is unregistered (adapter plugin absent). Toggle folding and effort
+ * injection apply only to routes inside this list; everything else keeps
+ * pi-ai's native reasoning semantics.
+ */
+function takeoverOf(ctx: Context): string[] | null {
+  const settings = ctx.get('settings') as SettingsReadLike | undefined
+  const section = settings?.get?.(TAKEOVER_NAMESPACE) as
+    | { enabled?: unknown; providers?: unknown }
+    | undefined
+  return takeoverProvidersOf(section)
+}
+
+/**
  * The llm-pi-ai posture of one model, read from the live settings namespace
  * (the capability card writes `reasoningEfforts` and `compat` there). Absent
  * when the route/model is not configured.
+ *
+ * A model is toggle-only (Off/On, no effort levels) only when BOTH the model
+ * declares a thinking toggle (reasoningEfforts table, no
+ * supportsReasoningEffort) AND the route is taken over by the
+ * openai-completions adapter (it is in the `llm-openai-completions` list).
+ * A route OUTSIDE the takeover list is served by pi-ai with its native
+ * reasoning semantics — off/high stay visible and pi-ai validates the effort —
+ * so it is NOT folded into a toggle here.
  */
 function piAiPosture(
   ctx: Context,
   provider: string,
   model: string,
+  takeover: string[] | null,
 ): { thinkingOn: boolean; supportsEffort: boolean } | undefined {
   const settings = ctx.get('settings') as SettingsReadLike | undefined
   const section = settings?.get?.('llm-pi-ai') as { providers?: Record<string, { models?: Array<Record<string, unknown>> }> } | undefined
@@ -295,7 +320,11 @@ function piAiPosture(
   const thinkingOn = typeof efforts === 'object' && efforts !== null && !Array.isArray(efforts)
   const supportsEffort = typeof compat === 'object' && compat !== null
     && (compat as Record<string, unknown>)['supportsReasoningEffort'] === true
-  return { thinkingOn, supportsEffort }
+  // Toggle folding is a takeover-list concern: only the openai-completions
+  // adapter's routes get the Off/On treatment. pi-ai-served routes keep their
+  // native effort levels (off/high visible).
+  const toggled = takeover !== null && takeover.includes(provider)
+  return { thinkingOn: thinkingOn && toggled, supportsEffort }
 }
 
 const CAPABILITY_CACHE_KEY_SEPARATOR = '\u0000'
@@ -320,7 +349,7 @@ function capabilityResolver(ctx: Context): {
       try {
         const info = await llm?.resolveModelInfo?.(provider, model)
         const efforts = info?.reasoning?.efforts?.map(effort => effort.id) ?? []
-        const posture = piAiPosture(ctx, provider, model)
+        const posture = piAiPosture(ctx, provider, model, takeoverOf(ctx))
         capability = {
           supportsReasoning: reasoningEffortSupported(info?.reasoning),
           efforts,
@@ -476,9 +505,11 @@ export function apply(ctx: Context, config: ThinkingLevelsConfig = DEFAULT_CONFI
     current().models[`${provider}/${model}`]
   // Read the live llm-pi-ai config for the thinking/effort posture the card
   // wrote there: a model with `reasoningEfforts` but without effort support
-  // (Qwen3.6) is collapsed to an On/Off toggle in the selector.
+  // (Qwen3.6) is collapsed to an On/Off toggle in the selector — but ONLY when
+  // the route is taken over by the openai-completions adapter. A pi-ai-served
+  // route (e.g. mimo via xiaomi) keeps its native off/high levels.
   const piAiFor = (provider: string, model: string): { thinkingOn: boolean; supportsEffort: boolean } | undefined =>
-    piAiPosture(ctx, provider, model)
+    piAiPosture(ctx, provider, model, takeoverOf(ctx))
   advertiseModelCapability(llm, overrideFor, piAiFor)
   const onAny = ctx.on as unknown as (event: string, listener: (...args: never[]) => unknown) => void
   onAny('llm/adapters-updated', () => {
