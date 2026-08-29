@@ -22,7 +22,7 @@
  * `useSyncExternalStore`, and the controls are plain HTML so the client bundle
  * needs no CSS modules and no primitives value import.
  */
-import { useSyncExternalStore } from 'react'
+import { useState, useSyncExternalStore } from 'react'
 import type { CSSProperties, JSX } from 'react'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -113,6 +113,43 @@ const fieldLabelStyle: CSSProperties = { margin: 0, fontSize: '12px', lineHeight
 const hintStyle: CSSProperties = { margin: '6px 0 0', fontSize: '12px', lineHeight: '18px', color: 'var(--dsw-alias-label-tertiary)' }
 
 const noteStyle: CSSProperties = { margin: '8px 0 0', fontSize: '12px', lineHeight: '18px', color: 'var(--dsw-alias-state-error-primary)' }
+
+/* Card shell, matching the other settings cards in the plugin tab: an outlined
+   row with a disclosure header, collapsed by default like every peer. */
+const cardStyle: CSSProperties = {
+  border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,0.35))',
+  background: 'var(--dsw-alias-bg-layer-3, rgba(127,127,127,0.05))',
+  borderRadius: '12px',
+  transition: 'border-color 0.16s, background 0.16s',
+}
+
+const cardHeaderStyle: CSSProperties = {
+  appearance: 'none',
+  width: '100%',
+  font: 'inherit',
+  color: 'inherit',
+  textAlign: 'left',
+  cursor: 'pointer',
+  background: 'none',
+  border: 0,
+  borderRadius: '12px',
+  display: 'flex',
+  alignItems: 'center',
+  gap: '12px',
+  padding: '14px 16px',
+}
+
+const cardHeadTextStyle: CSSProperties = { flex: '1 1 0%', minWidth: 0 }
+
+const cardNameStyle: CSSProperties = { fontSize: '14px', fontWeight: 600, color: 'var(--dsw-alias-label-primary)' }
+
+const cardDescStyle: CSSProperties = { color: 'var(--dsw-alias-label-tertiary, rgba(127,127,127,0.8))', fontSize: '13px', lineHeight: 1.5 }
+
+const cardChevronStyle: CSSProperties = {
+  color: 'var(--dsw-alias-label-tertiary, rgba(127,127,127,0.8))',
+  flex: '0 0 auto',
+  transition: 'transform 0.16s',
+}
 
 /** One boolean field row (checkbox) bound to the scope. */
 function ToggleRow(props: {
@@ -374,10 +411,13 @@ function ModelCapabilities(props: {
 }
 
 /**
- * The card body.
+ * The card body, wrapped in a disclosure shell like every peer settings card:
+ * a header (name + description + chevron) that toggles the body, collapsed by
+ * default so the plugin tab stays a tidy list of drawers.
  * @param props - locale copy and the injected scopes.
  */
 export function ThinkingLevelsCard({ t, scope, piAiScope }: ThinkingLevelsCardProps): JSX.Element {
+  const [open, setOpen] = useState(false)
   const snapshot = useSyncExternalStore(
     (listener) => scope.subscribe(listener),
     () => scope.getSnapshot(),
@@ -387,53 +427,79 @@ export function ThinkingLevelsCard({ t, scope, piAiScope }: ThinkingLevelsCardPr
   const value = (snapshot.value ?? {}) as Partial<ThinkingLevelsConfig>
   const level = EFFORT_OPTIONS.includes(value.level as EffortId) ? value.level as EffortId : 'auto'
 
-  if (unavailable) {
-    return (
-      <div style={{ padding: '12px 16px', fontSize: '13px', color: 'var(--dsw-alias-label-tertiary)' }}>
-        {t('card.unavailable')}
-      </div>
-    )
-  }
-
   return (
-    <div style={{ padding: '12px 16px' }}>
-      <div style={rowStyle}>
-        <label htmlFor="plugin-config-thinking-levels-level" style={labelStyle}>{t('card.level')}</label>
-        <select
-          id="plugin-config-thinking-levels-level"
-          value={level}
-          disabled={readonly}
-          style={controlStyle}
-          onChange={(event) => { void scope.set('level', event.currentTarget.value as EffortId) }}
+    <div style={cardStyle}>
+      <button
+        type="button"
+        aria-expanded={open}
+        style={cardHeaderStyle}
+        onClick={() => { setOpen(current => !current) }}
+      >
+        <span style={cardHeadTextStyle}>
+          <div style={cardNameStyle}>{t('card.title')}</div>
+          <div style={cardDescStyle}>{t('card.description')}</div>
+        </span>
+        <svg
+          width="16" height="16" viewBox="0 0 16 16" aria-hidden
+          style={{ ...cardChevronStyle, transform: open ? 'rotate(180deg)' : 'none' }}
         >
-          {EFFORT_OPTIONS.map((option) => (
-            <option key={option} value={option}>{t(`card.level.${option}`)}</option>
-          ))}
-        </select>
-      </div>
-      <ToggleRow
-        id="plugin-config-thinking-levels-enabled"
-        label={t('card.enabled')}
-        checked={value.enabled ?? true}
-        disabled={readonly}
-        onChange={(next) => { void scope.set('enabled', next) }}
-      />
-      <ToggleRow
-        id="plugin-config-thinking-levels-downgrade"
-        label={t('card.allowDowngrade')}
-        checked={value.allowDowngrade ?? true}
-        disabled={readonly || value.level !== 'auto'}
-        onChange={(next) => { void scope.set('allowDowngrade', next) }}
-      />
-      <ToggleRow
-        id="plugin-config-thinking-levels-upgrade"
-        label={t('card.allowUpgrade')}
-        checked={value.allowUpgrade ?? false}
-        disabled={readonly || value.level !== 'auto'}
-        onChange={(next) => { void scope.set('allowUpgrade', next) }}
-      />
-      {!snapshot.writable && <p style={{ margin: '8px 0 0', fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' }}>{t('card.readonly')}</p>}
-      <ModelCapabilities scope={piAiScope} t={t} readonly={readonly} />
+          <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {open
+        ? (
+          <div style={{ padding: '12px 16px' }}>
+            {unavailable
+              ? (
+                <div style={{ fontSize: '13px', color: 'var(--dsw-alias-label-tertiary)' }}>
+                  {t('card.unavailable')}
+                </div>
+              )
+              : (
+                <>
+                  <div style={rowStyle}>
+                    <label htmlFor="plugin-config-thinking-levels-level" style={labelStyle}>{t('card.level')}</label>
+                    <select
+                      id="plugin-config-thinking-levels-level"
+                      value={level}
+                      disabled={readonly}
+                      style={controlStyle}
+                      onChange={(event) => { void scope.set('level', event.currentTarget.value as EffortId) }}
+                    >
+                      {EFFORT_OPTIONS.map((option) => (
+                        <option key={option} value={option}>{t(`card.level.${option}`)}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <ToggleRow
+                    id="plugin-config-thinking-levels-enabled"
+                    label={t('card.enabled')}
+                    checked={value.enabled ?? true}
+                    disabled={readonly}
+                    onChange={(next) => { void scope.set('enabled', next) }}
+                  />
+                  <ToggleRow
+                    id="plugin-config-thinking-levels-downgrade"
+                    label={t('card.allowDowngrade')}
+                    checked={value.allowDowngrade ?? true}
+                    disabled={readonly || value.level !== 'auto'}
+                    onChange={(next) => { void scope.set('allowDowngrade', next) }}
+                  />
+                  <ToggleRow
+                    id="plugin-config-thinking-levels-upgrade"
+                    label={t('card.allowUpgrade')}
+                    checked={value.allowUpgrade ?? false}
+                    disabled={readonly || value.level !== 'auto'}
+                    onChange={(next) => { void scope.set('allowUpgrade', next) }}
+                  />
+                  {!snapshot.writable
+                    && <p style={{ margin: '8px 0 0', fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' }}>{t('card.readonly')}</p>}
+                  <ModelCapabilities scope={piAiScope} t={t} readonly={readonly} />
+                </>
+              )}
+          </div>
+        )
+        : null}
     </div>
   )
 }
