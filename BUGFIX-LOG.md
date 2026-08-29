@@ -132,6 +132,17 @@
 
 ---
 
+## On 档位虚拟化回归 — mimo-v2.5 报 `does not support reasoning effort "on"`
+
+- **版本**：v0.6.0 内（`52e4402` 引入，`bf2c8f0` 修复）。
+- **现象**：pi-ai 路由的 toggle-only 模型（xiaomi/mimo-v2.5，`reasoningEfforts: {off, high}` + `supportsReasoningEffort: false`）在会话选择器选 On 后，请求报 `provider "xiaomi" model "mimo-v2.5" does not support reasoning effort "on"`。
+- **根因**：`52e4402` 把 toggle 模型的 On 从 advertise `high` 改成 `on`（为满足"on 不映射 high、不传 effort"的语义），但 **pi-ai 的请求路径只认自己解析出的固定档位**（`adapter.ts resolveReasoningLevel` 用 `getSupportedThinkingLevels(model)` 校验，mimo 声明的是 off/high）——`on` 不在其中，每流式请求被拒。
+- **修复**：toggle 模型的 On **advertise id 回到 `high`（name "On"）**；`resolveEffortInjection` 把配置/选择器层的 `on` 在 toggle 模型上归一化为 `high`，在 effort 模型上剥离。wire 语义不变：pi-ai 对 `supportsReasoningEffort: false` 模型把非 off effort 序列化为 `enable_thinking`，**不发 reasoning_effort**——正是用户要的"只传 thinking enable"。
+- **教训**：展示层虚构档位（On）必须映射到 provider 请求路径认识的**真实档位**；advertise id 会被 `resolveCallFor`/provider 校验消费，不能只满足选择器展示。
+- **验证**：vitest 47 例全过（toggle 场景改回 off/high、on→high 归一化、effort 模型剥离 on）；typecheck/lint/build 全过。
+
+---
+
 ## 修复版本时间线
 
 | 版本 | 修复内容 |
