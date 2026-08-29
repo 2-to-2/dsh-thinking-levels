@@ -240,19 +240,14 @@ export function resolveEffortInjection(input: EffortInjectionInput): EffortInjec
   if (!supportsReasoning) return { inject: false }
   if (toggleOnly) {
     // Toggle-only model (Qwen3.6 / mimo-v2.5 style): thinking is an on/off
-    // switch expressed through the provider's enable_thinking semantics, never
-    // a reasoning_effort level.
-    // - Off → inject `off`: the provider recognizes it (pi-ai maps a declared
-    //   off to "omit the reasoning option"; the short-circuit adapter turns it
-    //   into enable_thinking:false). Stripping instead would leave the
-    //   provider's default (thinking on) — Off must be explicit.
-    // - On / unset → no effort at all: the provider's default is thinking on
-    //   (pi-ai omits the reasoning option; the short-circuit adapter sends
-    //   enable_thinking:true when no explicit off arrives). Injecting any
-    //   level would either be rejected (unknown level) or ride a
-    //   reasoning_effort the endpoint does not take.
-    if (seedEffort === 'off') return { inject: true, level: 'off' }
-    return { inject: false }
+    // switch expressed through the provider's enable_thinking semantics.
+    // - Off → inject `off`: the provider maps it to thinking disabled.
+    // - On / any other seed → inject `high` (the advertised toggle level): the
+    //   short-circuit adapter serializes a non-off effort as enable_thinking
+    //   true — an explicit "thinking on" signal the wire needs. (A request
+    //   with NO effort at all is the ambiguous case: leaving it absent relies
+    //   on the provider default, which some gateways treat as off.)
+    return { inject: true, level: seedEffort === 'off' ? 'off' : 'high' }
   }
   if (seedEffort === 'on') {
     // A stray On on an effort-capable model: never a wire level, stripped.

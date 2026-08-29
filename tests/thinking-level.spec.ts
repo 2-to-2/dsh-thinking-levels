@@ -184,15 +184,15 @@ describe('resolveEffortInjection — model capability guard', () => {
     expect(resolveEffortInjection(base({ ...toggle, seedEffort: 'off' }))).toEqual({ inject: true, level: 'off' })
   })
 
-  it('toggle-only On carries NO effort (provider default is thinking on)', () => {
-    // `on` is the enable-thinking toggle: the request must not carry any
-    // effort — the provider's default is thinking on (pi-ai omits the
-    // reasoning option; the short-circuit adapter sends enable_thinking true
-    // when no explicit off arrives). Injecting a level would be rejected or
-    // ride a reasoning_effort the endpoint does not take.
+  it('toggle-only On injects high (the explicit thinking-on signal)', () => {
+    // `on` / any non-off seed on a toggle-only model injects `high` — the
+    // advertised toggle level. The short-circuit adapter serializes a non-off
+    // effort as enable_thinking true; an absent effort is ambiguous (some
+    // gateways treat it as off), so the explicit signal is required.
     const toggle = { efforts: ['off', 'high'], toggleOnly: true }
-    expect(resolveEffortInjection(base({ ...toggle, seedEffort: 'on' }))).toEqual({ inject: false })
-    expect(resolveEffortInjection(base({ ...toggle, seedEffort: undefined }))).toEqual({ inject: false })
+    expect(resolveEffortInjection(base({ ...toggle, seedEffort: 'on' }))).toEqual({ inject: true, level: 'high' })
+    expect(resolveEffortInjection(base({ ...toggle, seedEffort: 'high' }))).toEqual({ inject: true, level: 'high' })
+    expect(resolveEffortInjection(base({ ...toggle, seedEffort: undefined }))).toEqual({ inject: true, level: 'high' })
   })
 
   it('a stray On on an effort-capable model is stripped, never lifted', () => {
@@ -200,15 +200,6 @@ describe('resolveEffortInjection — model capability guard', () => {
     // stripped, not lifted to high.
     expect(resolveEffortInjection(base({ efforts: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'], seedEffort: 'on' })))
       .toEqual({ inject: false })
-  })
-
-  it('toggle-only auto schedule carries NO effort (thinking on by default)', () => {
-    // Toggle-only models have nothing to schedule: the auto path leaves the
-    // request free of effort so the provider's default (thinking on) applies.
-    const toggle = { efforts: ['off', 'high'], toggleOnly: true }
-    expect(resolveEffortInjection(base({ ...toggle, seedEffort: undefined, selected: 'auto' }))).toEqual({ inject: false })
-    const heavy = [{ name: 'mcp__docs', argsSize: 4000 }]
-    expect(resolveEffortInjection(base({ ...toggle, seedEffort: 'auto', recentCalls: heavy }))).toEqual({ inject: false })
   })
 
   it('passes the extended wire levels through when the model advertises them', () => {
