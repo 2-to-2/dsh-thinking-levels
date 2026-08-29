@@ -22,6 +22,15 @@
 
 插件**绝不向未声明推理能力的模型发送 `reasoning_effort`**。自定义 openai-completions 路由（如未配置 `reasoningEfforts` 的本地 Qwen3.6）通过 `ctx.llm.resolveModelInfo` 被判定为非推理模型，任何档位（继承的或调度产生的）都会被**剥离**而不是下发——dsh 的逐请求 `UNSUPPORTED_REASONING_EFFORT` 拒绝因此不会触发。不支持的字段绝不打进 API。
 
+### 与 dsh-llm-openai-completions 自动联动（v0.5.2）
+
+自定义网关（vLLM / LM Studio / 自建 OpenAI 兼容代理）**声明思考功能后**（`llm-pi-ai` 的模型行有 `reasoningEfforts` 表），必须由 [dsh-llm-openai-completions](https://github.com/drscrewdriver/dsh-llm-openai-completions) 接管该路由——否则 pi-ai 会发 `role: "developer"`（400）或漏掉 `enable_thinking`。本插件**自动维护接管名单**：
+
+- 扫描 `llm-pi-ai.providers`，识别「自定义 openai-completions 网关（`api: openai-completions` 或非官方 baseURL）**且** 任一模型声明 `reasoningEfforts` 表」的 provider；
+- 自动将其并入 `llm-openai-completions.providers` 并置 `enabled: true`（保留用户已手动添加的名单，去重）；
+- 触发时机：插件启动、`llm/adapters-updated`、`llm-pi-ai` 或接管名单的 settings 变化——无需手动改配置；
+- 软耦合：`llm-openai-completions` 插件未安装（命名空间未注册）时自动跳过写入，不影响本插件其它功能。
+
 版本行为：
 
 | dsh 版本 | `low` 处理 |
