@@ -4,19 +4,19 @@
  *
  * The card binds the `thinking-levels` settings namespace through the
  * `settingsScope` cordis service and renders its fields: the level picker
- * (off / low / high / max / auto) plus the scheduler toggles. Every change
- * commits immediately through the scope (no staged form): the decision is read
- * per model request, so a committed change applies to the next request without
- * a restart.
+ * (off / on / minimal / low / medium / high / xhigh / max / auto) plus the
+ * scheduler toggles. Every change commits immediately through the scope (no
+ * staged form): the decision is read per model request, so a committed change
+ * applies to the next request without a restart.
  *
  * Below the scheduler rows, a "model capabilities" block edits the
  * `llm-pi-ai` namespace directly (read + write through the same settings
- * transport): for every custom provider/model it offers the vision toggle,
- * the thinking posture (inherit / enabled / disabled), the effort-level
- * pickers, and the wire thinking format. This is how custom openai-completions
- * routes (Qwen3.6 / Qwen3.8-27B) get their capability metadata without
- * touching any official package — llm-pi-ai's own schema validates every
- * write.
+ * transport), borrowing dsh-thinking-effort's presentation: providers group
+ * their models, each model row shows capability badges and expands into a
+ * per-level editor where a level is ticked and its gateway wire value entered
+ * (e.g. `high` → `ultra`); `off` left empty means "do not send". A search box
+ * filters models and one-click presets apply official/generic level sets to
+ * every thinking model.
  *
  * Kept dependency-free beyond react: the scopes are subscribed with
  * `useSyncExternalStore`, and the controls are plain HTML so the client bundle
@@ -39,19 +39,27 @@ export interface ThinkingLevelsCardInjected {
 /** Full props: locale seat + the injected scopes. */
 export type ThinkingLevelsCardProps = PropsLocale<'thinking-levels'> & ThinkingLevelsCardInjected
 
-/** The five user-facing levels, in picker order. */
-const EFFORT_OPTIONS: readonly EffortId[] = ['off', 'low', 'high', 'max', 'auto']
+/** The user-facing levels, in picker order: eight standard levels plus the auto scheduler sentinel. */
+const EFFORT_OPTIONS: readonly EffortId[] = [
+  'off', 'on', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'auto',
+]
 
 /**
- * Effort-capable model id pattern (Qwen3.8-style): these models accept
- * reasoning_effort levels; everything else (e.g. Qwen3.6) only takes the
- * enable_thinking toggle, so the effort pickers stay hidden for them.
+ * The levels the capability editor offers. This is the llm-pi-ai
+ * `reasoningEfforts` table-key space — pi-ai's fixed seven levels (schema
+ * rejects any other key). `on` (the enable-thinking toggle) is a selector /
+ * injection-level concept, expressed here by the `off` + `high` pair
+ * (enable_thinking false/true), so it has no table key of its own.
  */
-const EFFORT_MODEL_PATTERN = /qwen3[._-]?8/i
+const CAPABILITY_LEVELS: readonly EffortId[] = [
+  'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max',
+] as const
 
-/** The effort levels the capability editor offers: off (disable thinking) plus the Qwen3.8-style wire levels (medium/xhigh collapse onto high upstream). */
-const CAPABILITY_LEVELS = ['off', 'low', 'high', 'max'] as const
-type CapabilityLevel = typeof CAPABILITY_LEVELS[number]
+/** One-click presets, mirroring dsh-thinking-effort: official DeepSeek style and a generic set. */
+const PRESETS: readonly { key: 'official' | 'generic'; levels: Record<string, unknown> }[] = [
+  { key: 'official', levels: { off: null, high: 'high', max: 'max' } },
+  { key: 'generic', levels: { off: null, low: 'low', medium: 'medium', high: 'high' } },
+]
 
 /** The wire thinking formats offered (llm-pi-ai's nameable set, incl. qwen-chat-template). */
 const THINKING_FORMATS = [
@@ -59,7 +67,8 @@ const THINKING_FORMATS = [
   'qwen-chat-template', 'string-thinking', 'ant-ling',
 ] as const
 
-/** Minimal shared row styling (inline; keeps the client bundle CSS-free). */
+/* ── shared row styling (inline; keeps the client bundle CSS-free) ──────── */
+
 const rowStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
@@ -87,23 +96,74 @@ const sectionStyle: CSSProperties = {
   borderTop: '1px solid var(--dsw-alias-border-l2)',
 }
 
-const modelStyle: CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '6px',
-  padding: '8px 0',
-  borderBottom: '1px solid var(--dsw-alias-border-l2)',
+const fieldStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '4px' }
+
+const fieldLabelStyle: CSSProperties = { margin: 0, fontSize: '12px', lineHeight: '18px', color: 'var(--dsw-alias-label-tertiary)' }
+
+const hintStyle: CSSProperties = { margin: '6px 0 0', fontSize: '12px', lineHeight: '18px', color: 'var(--dsw-alias-label-tertiary)' }
+
+/** Provider group shell: an outlined row grouping its models. */
+const providerStyle: CSSProperties = {
+  border: '1px solid var(--dsw-alias-border-l2)',
+  borderRadius: '8px',
+  margin: '8px 0 0',
+  overflow: 'hidden',
 }
 
-const modelHeadStyle: CSSProperties = {
+const providerHeadStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
-  justifyContent: 'space-between',
   gap: '8px',
+  padding: '7px 10px',
+  background: 'var(--dsw-alias-bg-layer-2, rgba(127,127,127,0.06))',
+}
+
+const providerNameStyle: CSSProperties = {
+  margin: 0,
+  flex: '1 1 auto',
+  minWidth: 0,
+  fontFamily: 'var(--ds-font-family-code, monospace)',
+  fontSize: '12px',
+  lineHeight: '18px',
+  fontWeight: 600,
+  color: 'var(--dsw-alias-label-primary)',
+  overflowWrap: 'anywhere',
+}
+
+const providerBadgeStyle: CSSProperties = {
+  margin: 0,
+  fontSize: '10px',
+  lineHeight: '16px',
+  color: 'var(--dsw-alias-label-tertiary)',
+  border: '1px solid var(--dsw-alias-border-l2)',
+  borderRadius: '4px',
+  padding: '0 5px',
+  whiteSpace: 'nowrap',
+}
+
+const iconButtonStyle: CSSProperties = {
+  background: 'none',
+  border: 'none',
+  color: 'var(--dsw-alias-label-tertiary)',
+  cursor: 'pointer',
+  padding: '2px 4px',
+  display: 'inline-flex',
+  alignItems: 'center',
+}
+
+/** One model row inside a provider group. */
+const modelRowStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '8px',
+  padding: '7px 10px',
+  borderTop: '1px solid var(--dsw-alias-border-l2)',
 }
 
 const modelIdStyle: CSSProperties = {
   margin: 0,
+  flex: '1 1 auto',
+  minWidth: 0,
   fontFamily: 'var(--ds-font-family-code, monospace)',
   fontSize: '12px',
   lineHeight: '18px',
@@ -111,75 +171,41 @@ const modelIdStyle: CSSProperties = {
   overflowWrap: 'anywhere',
 }
 
-const checkRowStyle: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '13px' }
-
-const fieldStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '4px' }
-
-const fieldLabelStyle: CSSProperties = { margin: 0, fontSize: '12px', lineHeight: '18px', color: 'var(--dsw-alias-label-tertiary)' }
-
-const hintStyle: CSSProperties = { margin: '6px 0 0', fontSize: '12px', lineHeight: '18px', color: 'var(--dsw-alias-label-tertiary)' }
-
-const noteStyle: CSSProperties = { margin: '8px 0 0', fontSize: '12px', lineHeight: '18px', color: 'var(--dsw-alias-state-error-primary)' }
-
-/* Card shell, matching the other settings cards in the plugin tab: an outlined
-   row with a disclosure header, collapsed by default like every peer. */
-const cardStyle: CSSProperties = {
-  border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,0.35))',
-  background: 'var(--dsw-alias-bg-layer-3, rgba(127,127,127,0.05))',
-  borderRadius: '12px',
-  transition: 'border-color 0.16s, background 0.16s',
+/** Capability badge chips (text / image / context). */
+const badgeStyle: CSSProperties = {
+  fontSize: '10px',
+  lineHeight: '16px',
+  color: 'var(--dsw-alias-label-tertiary)',
+  border: '1px solid var(--dsw-alias-border-l2)',
+  borderRadius: '4px',
+  padding: '0 5px',
+  whiteSpace: 'nowrap',
 }
 
-const cardHeaderStyle: CSSProperties = {
-  appearance: 'none',
-  width: '100%',
-  font: 'inherit',
-  color: 'inherit',
-  textAlign: 'left',
-  cursor: 'pointer',
-  background: 'none',
-  border: 0,
-  borderRadius: '12px',
-  display: 'flex',
+/** The per-level editor grid: one row per level with a toggle, a label and a wire input. */
+const levelRowStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'auto 92px minmax(0, 1fr)',
   alignItems: 'center',
-  gap: '12px',
-  padding: '14px 16px',
+  gap: '8px',
+  padding: '4px 0',
+  fontSize: '13px',
 }
 
-const cardHeadTextStyle: CSSProperties = { flex: '1 1 0%', minWidth: 0 }
+const levelNameStyle: CSSProperties = { margin: 0, fontSize: '12px', lineHeight: '18px', color: 'var(--dsw-alias-label-secondary)' }
 
-const cardNameStyle: CSSProperties = { fontSize: '14px', fontWeight: 600, color: 'var(--dsw-alias-label-primary)' }
-
-const cardDescStyle: CSSProperties = { color: 'var(--dsw-alias-label-tertiary, rgba(127,127,127,0.8))', fontSize: '13px', lineHeight: 1.5 }
-
-const cardChevronStyle: CSSProperties = {
-  color: 'var(--dsw-alias-label-tertiary, rgba(127,127,127,0.8))',
-  flex: '0 0 auto',
-  transition: 'transform 0.16s',
+const wireInputStyle: CSSProperties = {
+  background: 'var(--dsw-alias-bg-surface, #fff)',
+  color: 'var(--dsw-alias-label-primary)',
+  border: '1px solid var(--dsw-alias-border-l2)',
+  borderRadius: '4px',
+  padding: '3px 8px',
+  fontSize: '12px',
+  width: '100%',
+  boxSizing: 'border-box',
 }
 
-/** One boolean field row (checkbox) bound to the scope. */
-function ToggleRow(props: {
-  id: string
-  label: string
-  checked: boolean
-  disabled: boolean
-  onChange: (next: boolean) => void
-}): JSX.Element {
-  const { id, label, checked, disabled, onChange } = props
-  return (
-    <div style={rowStyle}>
-      <label htmlFor={id} style={labelStyle}>{label}</label>
-      <input
-        id={id}
-        type="checkbox"
-        checked={checked}
-        disabled={disabled}
-        onChange={(event) => onChange(event.currentTarget.checked)}
-      />
-    </div>
-  )
-}
+/* ── helpers over the llm-pi-ai user layer ─────────────────────────────── */
 
 /** A row's `reasoningEfforts` as stored in the user layer. */
 function effortsOf(model: Record<string, unknown>): false | Record<string, unknown> | undefined {
@@ -191,21 +217,22 @@ function effortsOf(model: Record<string, unknown>): false | Record<string, unkno
   return undefined
 }
 
-/** The capability levels a row's table declares. */
-function effortLevelsOf(model: Record<string, unknown>): CapabilityLevel[] {
-  const table = effortsOf(model)
-  if (typeof table !== 'object' || table === null) return []
-  return CAPABILITY_LEVELS.filter(level => table[level] !== undefined)
-}
-
 /**
- * Build a `reasoningEfforts` table from checked levels: `off` maps to `null`
- * (omit the reasoning option → enable_thinking false), the others keep their
- * own name as the wire spelling. pi-ai rejects a table offering nothing beyond
- * `off`, so a selection of only `off` falls back to the default `high` level.
+ * Build a `reasoningEfforts` table from a level→wire draft. `off` maps to
+ * `null` (omit the reasoning option → enable_thinking false) unless the user
+ * typed a wire value; every other ticked level keeps its typed wire value.
+ * pi-ai rejects a table offering nothing beyond `off`, so a selection of only
+ * `off` falls back to the default `high` level.
  */
-function effortTableOf(levels: readonly CapabilityLevel[]): Record<string, unknown> {
-  const table = Object.fromEntries(levels.map(level => [level, level === 'off' ? null : level]))
+function effortTableOf(draft: Record<string, string | null>): Record<string, unknown> {
+  const table: Record<string, unknown> = {}
+  for (const level of CAPABILITY_LEVELS) {
+    const wire = draft[level]
+    if (wire === undefined || wire === null) continue
+    const trimmed = typeof wire === 'string' ? wire.trim() : ''
+    if (level === 'off') table[level] = trimmed === '' ? null : trimmed
+    else if (trimmed !== '') table[level] = trimmed
+  }
   if (Object.keys(table).length === 0 || Object.keys(table).every(level => table[level] === null)) {
     return { ...table, high: 'high' }
   }
@@ -251,8 +278,63 @@ function providersOf(snapshot: unknown): Record<string, unknown> {
     : {}
 }
 
+/** One flattened capability entry: a provider's model at an array index. */
+interface CapabilityEntry {
+  providerId: string
+  index: number
+  model: Record<string, unknown>
+  modelId: string
+}
+
+/** Flatten the user-layer providers into capability entries (models arrays only). */
+function entriesOf(providers: Record<string, unknown>): CapabilityEntry[] {
+  return Object.entries(providers).flatMap(([providerId, profile]) => {
+    const models = (profile as Record<string, unknown>)['models']
+    if (!Array.isArray(models)) return []
+    return models.map((model, index) => ({
+      providerId,
+      index,
+      model: (typeof model === 'object' && model !== null && !Array.isArray(model)
+        ? model as Record<string, unknown>
+        : {}),
+      modelId: typeof model === 'object' && model !== null && typeof (model as Record<string, unknown>)['id'] === 'string'
+        ? (model as Record<string, unknown>)['id'] as string
+        : `#${index + 1}`,
+    }))
+  })
+}
+
+/** Human-readable capability summary of one entry (input modalities + declared context window). */
+function summaryOf(entry: CapabilityEntry): { text: boolean; image: boolean; context: string | null } {
+  const input = entry.model['input']
+  const text = !Array.isArray(input) || input.length === 0 || input.includes('text')
+  const image = Array.isArray(input) && input.includes('image')
+  const contextWindow = entry.model['contextWindow']
+  let context: string | null = null
+  if (typeof contextWindow === 'number' && Number.isFinite(contextWindow) && contextWindow > 0) {
+    context = contextWindow >= 1024
+      ? `${Math.round(contextWindow / 1024)}K`
+      : String(contextWindow)
+  }
+  return { text, image, context }
+}
+
+/** A tiny inline chevron icon (no CSS modules). */
+function ChevronIcon({ open }: { open: boolean }): JSX.Element {
+  return (
+    <svg
+      width="12" height="12" viewBox="0 0 16 16" aria-hidden
+      style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.16s' }}
+    >
+      <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 /**
- * The llm-pi-ai model-capability editor block.
+ * The llm-pi-ai model-capability editor block (dsh-thinking-effort style:
+ * provider groups, model rows with badges, per-level wire editors, search and
+ * one-click presets).
  * @param scope - the `llm-pi-ai` namespace scope.
  * @param t - copy lookup.
  * @param readonly - whether writes are forbidden.
@@ -270,23 +352,24 @@ function ModelCapabilities(props: {
   )
   const unavailable = snapshot.status === 'unavailable'
   const providers = snapshot.status === 'ready' ? providersOf(snapshot) : {}
-  const entries = Object.entries(providers).flatMap(([providerId, profile]) => {
-    const models = (profile as Record<string, unknown>)['models']
-    if (!Array.isArray(models)) return []
-    return models.map((model, index) => ({
-      providerId,
-      index,
-      model: (typeof model === 'object' && model !== null && !Array.isArray(model)
-        ? model as Record<string, unknown>
-        : {}),
-    }))
-  })
+  const allEntries = entriesOf(providers)
+
+  // UI-only state: provider/model expansion, the wire drafts, and the query.
+  const [query, setQuery] = useState('')
+  const [expandedProviders, setExpandedProviders] = useState<Record<string, boolean>>({})
+  const [expandedModels, setExpandedModels] = useState<Record<string, boolean>>({})
+  const [drafts, setDrafts] = useState<Record<string, Record<string, string | null>>>({})
+  const [busy, setBusy] = useState(false)
+
+  const entryKey = (entry: CapabilityEntry): string => `${entry.providerId}\u0000${entry.index}`
 
   /** Commit one patch over the user-layer providers. */
   const commitProviders = (mutate: (current: Record<string, unknown>) => Record<string, unknown>): void => {
-    if (snapshot.status !== 'ready') return
-    const current = structuredClone(providers)
-    void scope.set('providers', mutate(current)).catch(() => {})
+    if (snapshot.status !== 'ready' || readonly) return
+    setBusy(true)
+    void scope.set('providers', mutate(structuredClone(providers)))
+      .then(() => { setBusy(false) })
+      .catch(() => { setBusy(false) })
   }
 
   /** Patch one model row of one provider. */
@@ -305,6 +388,85 @@ function ModelCapabilities(props: {
     })
   }
 
+  /** Apply one model's wire draft as its `reasoningEfforts` table. */
+  const applyDraft = (entry: CapabilityEntry): void => {
+    const key = entryKey(entry)
+    const draft = drafts[key]
+    if (draft === undefined) return
+    const table = effortTableOf(draft)
+    patchModel(entry.providerId, entry.index, (row) => {
+      row['reasoningEfforts'] = table
+      // Mark effort support only when the model already had it or the user
+      // ticked a reasoning_effort-only level (minimal/low/medium/xhigh/max).
+      // A toggle-only model (Qwen3.6: off/high = enable_thinking) must keep
+      // supportsReasoningEffort false — flipping it would make the adapter
+      // send a reasoning_effort the gateway rejects (400).
+      const extended = Object.keys(table).some(level => level !== 'off' && level !== 'on' && level !== 'high')
+      if (supportsEffortOf(row) || extended) {
+        patchCompat(row, (compat) => {
+          compat['supportsReasoningEffort'] = true
+        })
+      }
+    })
+  }
+
+  /** Reset a model's draft to its persisted table (or the default high set). */
+  const resetDraft = (entry: CapabilityEntry): void => {
+    const key = entryKey(entry)
+    setDrafts(current => {
+      const next = { ...current }
+      const table = effortsOf(entry.model)
+      if (typeof table === 'object' && table !== null) {
+        next[key] = Object.fromEntries(CAPABILITY_LEVELS.map(level => [
+          level,
+          table[level] === undefined ? null : (table[level] === null ? '' : String(table[level])),
+        ]))
+      } else {
+        next[key] = { off: '', high: 'high' }
+      }
+      return next
+    })
+  }
+
+  /** Seed a model's draft when it is first expanded. */
+  const ensureDraft = (entry: CapabilityEntry): void => {
+    const key = entryKey(entry)
+    setDrafts(current => {
+      if (current[key] !== undefined) return current
+      const next = { ...current }
+      const table = effortsOf(entry.model)
+      if (typeof table === 'object' && table !== null) {
+        next[key] = Object.fromEntries(CAPABILITY_LEVELS.map(level => [
+          level,
+          table[level] === undefined ? null : (table[level] === null ? '' : String(table[level])),
+        ]))
+      } else {
+        next[key] = { off: '', high: 'high' }
+      }
+      return next
+    })
+  }
+
+  /** Apply a one-click preset to every thinking model. */
+  const applyPreset = (levels: Record<string, unknown>): void => {
+    commitProviders((current) => {
+      for (const entry of entriesOf(current)) {
+        const profile = current[entry.providerId] as { models?: unknown[] } | undefined
+        if (profile === undefined || !Array.isArray(profile.models)) continue
+        const model = profile.models[entry.index]
+        if (typeof model !== 'object' || model === null) continue
+        const row = model as Record<string, unknown>
+        if (effortsOf(row) === undefined) continue // only thinking models
+        // Replace the table but never touch supportsReasoningEffort: a
+        // toggle-only model (Qwen3.6) must stay Off/On (enable_thinking), so
+        // the request guard keeps clamping any injected level to its default
+        // strength instead of sending a reasoning_effort the gateway rejects.
+        row['reasoningEfforts'] = levels
+      }
+      return current
+    })
+  }
+
   if (unavailable) {
     return (
       <div style={sectionStyle}>
@@ -312,7 +474,7 @@ function ModelCapabilities(props: {
       </div>
     )
   }
-  if (entries.length === 0) {
+  if (allEntries.length === 0) {
     return (
       <div style={sectionStyle}>
         <p style={fieldLabelStyle}>{t('card.capabilities')}</p>
@@ -321,147 +483,231 @@ function ModelCapabilities(props: {
     )
   }
 
+  const needle = query.trim().toLowerCase()
+  const visible = needle === ''
+    ? allEntries
+    : allEntries.filter(entry =>
+      entry.modelId.toLowerCase().includes(needle)
+      || entry.providerId.toLowerCase().includes(needle))
+  const providerIds = [...new Set(visible.map(entry => entry.providerId))]
+
   return (
     <div style={sectionStyle}>
       <p style={fieldLabelStyle}>{t('card.capabilities')}</p>
       <p style={hintStyle}>{t('card.capabilities.hint')}</p>
-      {entries.map(({ providerId, index, model }) => {
-        const efforts = effortsOf(model)
-        const thinking = typeof efforts === 'object'
-        // The effort switch is manual (Qwen3.6: off → no pickers; Qwen3.8-27B:
-        // on → pick levels), defaulting from an id heuristic (3.8-style → on).
-        const modelId = typeof model['id'] === 'string' ? model['id'] : ''
-        const supportsEffort = supportsEffortOf(model) || EFFORT_MODEL_PATTERN.test(modelId)
-        const input = model['input']
-        const vision = Array.isArray(input) && input.includes('image')
-        const format = formatOf(model)
-        return (
-          <div key={`${providerId}/${index}`} style={modelStyle}>
-            <div style={modelHeadStyle}>
-              <p style={modelIdStyle}>{providerId} / {typeof model['id'] === 'string' ? model['id'] : `#${index + 1}`}</p>
-              <label style={checkRowStyle}>
-                <input
-                  type="checkbox"
-                  checked={vision}
-                  disabled={readonly}
-                  onChange={(event) => {
-                    patchModel(providerId, index, (row) => {
-                      // Image input implies text input; the pair is written together.
-                      row['input'] = event.currentTarget.checked ? ['text', 'image'] : ['text']
-                    })
+
+      {/* Search + one-click presets */}
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', margin: '8px 0 2px' }}>
+        <input
+          type="text"
+          value={query}
+          placeholder={t('card.capabilities.search')}
+          disabled={readonly || busy}
+          style={{ ...controlStyle, flex: '1 1 160px', minWidth: '140px' }}
+          onChange={(event) => setQuery(event.currentTarget.value)}
+        />
+        {PRESETS.map(preset => (
+          <button
+            key={preset.key}
+            type="button"
+            disabled={readonly || busy}
+            onClick={() => applyPreset(preset.levels)}
+            style={{
+              ...controlStyle,
+              cursor: readonly || busy ? 'default' : 'pointer',
+              opacity: readonly || busy ? 0.5 : 1,
+            }}
+          >
+            {t(`card.capabilities.preset${preset.key === 'official' ? 'Official' : 'Generic'}`)}
+          </button>
+        ))}
+      </div>
+
+      {visible.length === 0
+        ? <p style={hintStyle}>{t('card.capabilities.noMatches')}</p>
+        : providerIds.map(providerId => {
+          const providerEntries = visible.filter(entry => entry.providerId === providerId)
+          const providerOpen = expandedProviders[providerId] === true || needle !== ''
+          return (
+            <div key={providerId} style={providerStyle}>
+              <div style={providerHeadStyle}>
+                <button
+                  type="button"
+                  aria-expanded={providerOpen}
+                  disabled={readonly || busy}
+                  onClick={() => setExpandedProviders(current => ({
+                    ...current,
+                    [providerId]: current[providerId] !== true,
+                  }))}
+                  style={{
+                    ...iconButtonStyle,
+                    cursor: readonly || busy ? 'default' : 'pointer',
                   }}
-                />
-                <span>{t('card.capabilities.vision')}</span>
-              </label>
-            </div>
-            <label style={checkRowStyle}>
-              <input
-                type="checkbox"
-                checked={thinking}
-                disabled={readonly}
-                onChange={(event) => {
-                  const next = event.currentTarget.checked
-                  patchModel(providerId, index, (row) => {
-                    if (!next) {
-                      // Thinking off: a non-reasoning model never takes an effort.
-                      row['reasoningEfforts'] = false
-                    } else {
-                      // Thinking on: a table must exist so dsh accepts the level
-                      // that drives the wire's enable_thinking. Qwen3.6-style
-                      // models (no effort) declare off + the fixed default high
-                      // (the selector is collapsed to an On/Off toggle); effort-
-                      // capable ones (Qwen3.8) pick their levels below.
-                      const rowId = typeof row['id'] === 'string' ? row['id'] : ''
-                      const effortCapable = supportsEffortOf(row) || EFFORT_MODEL_PATTERN.test(rowId)
-                      row['reasoningEfforts'] = effortCapable
-                        ? effortTableOf(effortLevelsOf(row))
-                        : { off: null, high: 'high' }
-                    }
-                  })
-                }}
-              />
-              <span>{t('card.capabilities.thinking')}</span>
-            </label>
-            {thinking
-              ? (
-                <>
-                  <label style={checkRowStyle}>
-                    <input
-                      type="checkbox"
-                      checked={supportsEffort}
-                      disabled={readonly}
-                      onChange={(event) => {
-                        const next = event.currentTarget.checked
-                        patchModel(providerId, index, (row) => {
-                          patchCompat(row, (compat) => {
-                            compat['supportsReasoningEffort'] = next
-                          })
-                        })
-                      }}
-                    />
-                    <span>{t('card.capabilities.supportsEffort')}</span>
-                  </label>
-                  {supportsEffort
-                    ? (
-                      <div style={fieldStyle}>
-                        <span style={fieldLabelStyle}>{t('card.capabilities.efforts')}</span>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px' }}>
-                          {CAPABILITY_LEVELS.map(level => (
-                            <label key={level} style={checkRowStyle}>
-                              <input
-                                type="checkbox"
-                                checked={effortLevelsOf(model).includes(level)}
-                                disabled={readonly}
-                                onChange={(event) => {
-                                  patchModel(providerId, index, (row) => {
-                                    const current = effortLevelsOf(row)
-                                    const next = event.currentTarget.checked
-                                      ? [...current, level]
-                                      : current.filter(at => at !== level)
-                                    row['reasoningEfforts'] = effortTableOf(next)
-                                    // Picking a level is a declaration of
-                                    // effort support; keep the wire flag in sync.
-                                    patchCompat(row, (compat) => {
-                                      compat['supportsReasoningEffort'] = true
-                                    })
-                                  })
-                                }}
-                              />
-                              <span>{level.charAt(0).toUpperCase() + level.slice(1)}</span>
-                            </label>
-                          ))}
-                        </div>
+                  title={providerOpen ? t('card.capabilities.collapseProvider') : t('card.capabilities.expandProvider')}
+                >
+                  <ChevronIcon open={providerOpen} />
+                </button>
+                <p style={providerNameStyle}>{providerId}</p>
+                <p style={providerBadgeStyle}>{t('card.capabilities.vendor')} · {providerEntries.length}</p>
+              </div>
+              {providerOpen
+                ? providerEntries.map(entry => {
+                  const key = entryKey(entry)
+                  const modelOpen = expandedModels[key] === true
+                  const efforts = effortsOf(entry.model)
+                  const thinking = typeof efforts === 'object'
+                  const supportsEffort = supportsEffortOf(entry.model)
+                  const meta = summaryOf(entry)
+                  const format = formatOf(entry.model)
+                  return (
+                    <div key={key}>
+                      <div style={modelRowStyle}>
+                        <button
+                          type="button"
+                          aria-expanded={modelOpen}
+                          disabled={readonly || busy}
+                          onClick={() => {
+                            const next = expandedModels[key] !== true
+                            setExpandedModels(current => ({ ...current, [key]: next }))
+                            if (next) ensureDraft(entry)
+                          }}
+                          style={{
+                            ...iconButtonStyle,
+                            cursor: readonly || busy ? 'default' : 'pointer',
+                          }}
+                          title={modelOpen ? t('card.capabilities.closeModelSettings') : t('card.capabilities.openModelSettings')}
+                        >
+                          <ChevronIcon open={modelOpen} />
+                        </button>
+                        <p style={modelIdStyle}>{entry.modelId}</p>
+                        <span style={badgeStyle} title="text">{meta.text ? 'T' : '–'}</span>
+                        <span style={badgeStyle} title="image">{meta.image ? 'IMG' : '–'}</span>
+                        {meta.context !== null && <span style={badgeStyle}>{meta.context}</span>}
+                        {thinking && !supportsEffort && <span style={badgeStyle}>On/Off</span>}
                       </div>
-                    )
-                    : null}
-                </>
-              )
-              : null}
-            <label style={fieldStyle}>
-              <span style={fieldLabelStyle}>{t('card.capabilities.thinkingFormat')}</span>
-              <select
-                style={controlStyle}
-                value={format ?? 'inherit'}
-                disabled={readonly}
-                onChange={(event) => {
-                  const next = event.currentTarget.value
-                  patchModel(providerId, index, (row) => {
-                    patchCompat(row, (compat) => {
-                      if (next === 'inherit') delete compat['thinkingFormat']
-                      else compat['thinkingFormat'] = next
-                    })
-                  })
-                }}
-              >
-                <option value="inherit">{t('card.capabilities.thinkingFormat.inherit')}</option>
-                {THINKING_FORMATS.map(formatOption => (
-                  <option key={formatOption} value={formatOption}>{formatOption}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-        )
-      })}
+                      {modelOpen
+                        ? (
+                          <div style={{ padding: '4px 10px 10px', borderTop: '1px solid var(--dsw-alias-border-l2)' }}>
+                            {/* Per-level wire editor */}
+                            <p style={fieldLabelStyle}>{t('card.capabilities.efforts')}</p>
+                            <div style={{ margin: '4px 0 6px' }}>
+                              {CAPABILITY_LEVELS.map(level => {
+                                const wire = drafts[key]?.[level]
+                                const on = wire !== undefined && wire !== null
+                                return (
+                                  <div key={level} style={levelRowStyle}>
+                                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+                                      <input
+                                        type="checkbox"
+                                        checked={on}
+                                        disabled={readonly || busy}
+                                        onChange={(event) => {
+                                          const checked = event.currentTarget.checked
+                                          setDrafts(current => {
+                                            const draft = { ...(current[key] ?? {}) }
+                                            draft[level] = checked
+                                              ? (level === 'off' ? '' : level)
+                                              : null
+                                            return { ...current, [key]: draft }
+                                          })
+                                        }}
+                                      />
+                                      <span>{level}</span>
+                                    </label>
+                                    <span style={levelNameStyle}>{level === 'off' ? t('card.capabilities.offPlaceholder') : '→'}</span>
+                                    <input
+                                      type="text"
+                                      value={wire ?? ''}
+                                      disabled={readonly || busy || !on}
+                                      placeholder={t('card.capabilities.wirePlaceholder')}
+                                      style={wireInputStyle}
+                                      onChange={(event) => {
+                                        setDrafts(current => {
+                                          const draft = { ...(current[key] ?? {}) }
+                                          draft[level] = event.currentTarget.value
+                                          return { ...current, [key]: draft }
+                                        })
+                                      }}
+                                    />
+                                  </div>
+                                )
+                              })}
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                              <button
+                                type="button"
+                                disabled={readonly || busy}
+                                onClick={() => applyDraft(entry)}
+                                style={{
+                                  ...controlStyle,
+                                  cursor: readonly || busy ? 'default' : 'pointer',
+                                  opacity: readonly || busy ? 0.5 : 1,
+                                }}
+                              >
+                                {t('card.capabilities.applyLevel')}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={readonly || busy}
+                                onClick={() => resetDraft(entry)}
+                                style={{
+                                  ...controlStyle,
+                                  cursor: readonly || busy ? 'default' : 'pointer',
+                                  opacity: readonly || busy ? 0.5 : 1,
+                                }}
+                              >
+                                {t('card.capabilities.restoreDefault')}
+                              </button>
+                            </div>
+                            {/* Vision toggle + thinking format */}
+                            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '10px' }}>
+                              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={meta.image}
+                                  disabled={readonly || busy}
+                                  onChange={(event) => {
+                                    patchModel(entry.providerId, entry.index, (row) => {
+                                      // Image input implies text input; the pair is written together.
+                                      row['input'] = event.currentTarget.checked ? ['text', 'image'] : ['text']
+                                    })
+                                  }}
+                                />
+                                <span>{t('card.capabilities.vision')}</span>
+                              </label>
+                              <label style={fieldStyle}>
+                                <span style={fieldLabelStyle}>{t('card.capabilities.thinkingFormat')}</span>
+                                <select
+                                  style={controlStyle}
+                                  value={format ?? 'inherit'}
+                                  disabled={readonly || busy}
+                                  onChange={(event) => {
+                                    const next = event.currentTarget.value
+                                    patchModel(entry.providerId, entry.index, (row) => {
+                                      patchCompat(row, (compat) => {
+                                        if (next === 'inherit') delete compat['thinkingFormat']
+                                        else compat['thinkingFormat'] = next
+                                      })
+                                    })
+                                  }}
+                                >
+                                  <option value="inherit">{t('card.capabilities.thinkingFormat.inherit')}</option>
+                                  {THINKING_FORMATS.map(formatOption => (
+                                    <option key={formatOption} value={formatOption}>{formatOption}</option>
+                                  ))}
+                                </select>
+                              </label>
+                            </div>
+                          </div>
+                        )
+                        : null}
+                    </div>
+                  )
+                })
+                : null}
+            </div>
+          )
+        })}
       {readonly ? <p style={hintStyle}>{t('card.readonly')}</p> : null}
     </div>
   )
@@ -485,20 +731,44 @@ export function ThinkingLevelsCard({ t, scope, piAiScope }: ThinkingLevelsCardPr
   const level = EFFORT_OPTIONS.includes(value.level as EffortId) ? value.level as EffortId : 'auto'
 
   return (
-    <div style={cardStyle}>
+    <div style={{
+      border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,0.35))',
+      background: 'var(--dsw-alias-bg-layer-3, rgba(127,127,127,0.05))',
+      borderRadius: '12px',
+      transition: 'border-color 0.16s, background 0.16s',
+    }}>
       <button
         type="button"
         aria-expanded={open}
-        style={cardHeaderStyle}
+        style={{
+          appearance: 'none',
+          width: '100%',
+          font: 'inherit',
+          color: 'inherit',
+          textAlign: 'left',
+          cursor: 'pointer',
+          background: 'none',
+          border: 0,
+          borderRadius: '12px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          padding: '14px 16px',
+        }}
         onClick={() => { setOpen(current => !current) }}
       >
-        <span style={cardHeadTextStyle}>
-          <div style={cardNameStyle}>{t('card.title')}</div>
-          <div style={cardDescStyle}>{t('card.description')}</div>
+        <span style={{ flex: '1 1 0%', minWidth: 0 }}>
+          <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--dsw-alias-label-primary)' }}>{t('card.title')}</div>
+          <div style={{ color: 'var(--dsw-alias-label-tertiary, rgba(127,127,127,0.8))', fontSize: '13px', lineHeight: 1.5 }}>{t('card.description')}</div>
         </span>
         <svg
           width="16" height="16" viewBox="0 0 16 16" aria-hidden
-          style={{ ...cardChevronStyle, transform: open ? 'rotate(180deg)' : 'none' }}
+          style={{
+            color: 'var(--dsw-alias-label-tertiary, rgba(127,127,127,0.8))',
+            flex: '0 0 auto',
+            transition: 'transform 0.16s',
+            transform: open ? 'rotate(180deg)' : 'none',
+          }}
         >
           <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
@@ -528,27 +798,36 @@ export function ThinkingLevelsCard({ t, scope, piAiScope }: ThinkingLevelsCardPr
                       ))}
                     </select>
                   </div>
-                  <ToggleRow
-                    id="plugin-config-thinking-levels-enabled"
-                    label={t('card.enabled')}
-                    checked={value.enabled ?? true}
-                    disabled={readonly}
-                    onChange={(next) => { void scope.set('enabled', next) }}
-                  />
-                  <ToggleRow
-                    id="plugin-config-thinking-levels-downgrade"
-                    label={t('card.allowDowngrade')}
-                    checked={value.allowDowngrade ?? true}
-                    disabled={readonly || value.level !== 'auto'}
-                    onChange={(next) => { void scope.set('allowDowngrade', next) }}
-                  />
-                  <ToggleRow
-                    id="plugin-config-thinking-levels-upgrade"
-                    label={t('card.allowUpgrade')}
-                    checked={value.allowUpgrade ?? false}
-                    disabled={readonly || value.level !== 'auto'}
-                    onChange={(next) => { void scope.set('allowUpgrade', next) }}
-                  />
+                  <div style={rowStyle}>
+                    <label htmlFor="plugin-config-thinking-levels-enabled" style={labelStyle}>{t('card.enabled')}</label>
+                    <input
+                      id="plugin-config-thinking-levels-enabled"
+                      type="checkbox"
+                      checked={value.enabled ?? true}
+                      disabled={readonly}
+                      onChange={(event) => { void scope.set('enabled', event.currentTarget.checked) }}
+                    />
+                  </div>
+                  <div style={rowStyle}>
+                    <label htmlFor="plugin-config-thinking-levels-downgrade" style={labelStyle}>{t('card.allowDowngrade')}</label>
+                    <input
+                      id="plugin-config-thinking-levels-downgrade"
+                      type="checkbox"
+                      checked={value.allowDowngrade ?? true}
+                      disabled={readonly || value.level !== 'auto'}
+                      onChange={(event) => { void scope.set('allowDowngrade', event.currentTarget.checked) }}
+                    />
+                  </div>
+                  <div style={rowStyle}>
+                    <label htmlFor="plugin-config-thinking-levels-upgrade" style={labelStyle}>{t('card.allowUpgrade')}</label>
+                    <input
+                      id="plugin-config-thinking-levels-upgrade"
+                      type="checkbox"
+                      checked={value.allowUpgrade ?? false}
+                      disabled={readonly || value.level !== 'auto'}
+                      onChange={(event) => { void scope.set('allowUpgrade', event.currentTarget.checked) }}
+                    />
+                  </div>
                   {!snapshot.writable
                     && <p style={{ margin: '8px 0 0', fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' }}>{t('card.readonly')}</p>}
                   <ModelCapabilities scope={piAiScope} t={t} readonly={readonly} />

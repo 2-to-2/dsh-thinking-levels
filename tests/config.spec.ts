@@ -9,28 +9,30 @@ describe('plugin config schema', () => {
     expect(Config(asConfig({}))).toEqual(DEFAULT_CONFIG)
   })
 
-  it('accepts the five levels and the scheduler toggles at both surfaces', () => {
-    const parsed = Config(asConfig({ enabled: false, level: 'low', allowDowngrade: false, allowUpgrade: true }))
-    expect(parsed).toEqual({ enabled: false, level: 'low', allowDowngrade: false, allowUpgrade: true, models: {} })
+  it('accepts the nine levels and the scheduler toggles at both surfaces', () => {
+    const parsed = Config(asConfig({ enabled: false, level: 'medium', allowDowngrade: false, allowUpgrade: true }))
+    expect(parsed).toEqual({ enabled: false, level: 'medium', allowDowngrade: false, allowUpgrade: true, models: {} })
   })
 
-  it('accepts configurer-confirmed model capability overrides', () => {
+  it('accepts configurer-confirmed model capability overrides with extended levels', () => {
     const parsed = Config(asConfig({
       level: 'auto',
       models: {
         'llm-pi-ai/Qwen3.6-35B-A3B': { vision: false, thinking: true, efforts: false },
         'llm-pi-ai/Qwen3.8-27B': { efforts: ['low', 'high'] },
+        'llm-pi-ai/custom-gateway': { efforts: ['minimal', 'medium', 'xhigh', 'max'] },
       },
     }))
     expect(parsed.models).toEqual({
       'llm-pi-ai/Qwen3.6-35B-A3B': { vision: false, thinking: true, efforts: false },
       'llm-pi-ai/Qwen3.8-27B': { efforts: ['low', 'high'] },
+      'llm-pi-ai/custom-gateway': { efforts: ['minimal', 'medium', 'xhigh', 'max'] },
     })
   })
 
   it('rejects out-of-band levels at the configuration surface', () => {
-    expect(() => Config(asConfig({ level: 'medium' }))).toThrow()
-    expect(() => Config(asConfig({ level: 'xhigh' }))).toThrow()
+    expect(() => Config(asConfig({ level: 'ultra' }))).toThrow()
+    expect(() => Config(asConfig({ level: 'reasoning' }))).toThrow()
   })
 
   it('exposes a kebab-case settings namespace', () => {

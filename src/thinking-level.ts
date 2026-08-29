@@ -7,15 +7,19 @@
  * (off / low / high / max; low shipped 2026-08-13 in dsh rc.7 — rc.6 and
  * older adapters only accept off / high / max).
  *
- * The plugin offers FIVE user-facing levels:
- * - `off`  : thinking disabled (manual only — never auto-picked).
- * - `low`  : cheap rounds stay cheap. Native since dsh rc.7; the manual pick
- *            passes through unchanged (never rewritten), and the auto
- *            scheduler may pick it for models that support it.
- * - `high` : manual fix, the official default effort.
- * - `max`  : manual fix for heavy work.
- * - `auto` : schedule per step from the recent tool-call history, between
- *            `low` / `high` / `max` (never `off`, never `auto` itself).
+ * The plugin offers EIGHT standard levels aligned with dsh-thinking-effort's
+ * level set, plus the scheduler sentinel:
+ * - `off`     : thinking disabled (manual only — never auto-picked).
+ * - `on`      : thinking enabled at the model's default strength. Toggle-only
+ *               models (Qwen3.6-style) surface Off/On; `on` lifts to the
+ *               advertised `high` (or the highest thinking level the model
+ *               takes) instead of an exact wire level.
+ * - `minimal` / `low` / `medium` / `high` / `xhigh` / `max` : strength
+ *   gradients. Each maps to a wire value via the model's `reasoningEfforts`
+ *   table (customizable per model — e.g. `high` → `ultra`); levels the model
+ *   does not advertise are clamped to its highest thinking level or stripped.
+ * - `auto`    : schedule per step from the recent tool-call history, between
+ *               `low` / `high` / `max` (never `off`, never `auto` itself).
  *
  * A request-level guard decides whether an effort may be injected at all:
  * models that do not advertise reasoning metadata (custom openai-completions
@@ -27,25 +31,33 @@
  * in isolation; the plugin host feeds it the live session's recent calls.
  */
 
-/** The five user-facing thinking levels; the wire levels dsh forwards plus the scheduler sentinel. */
-export type EffortId = 'off' | 'low' | 'high' | 'max' | 'auto'
+/** The user-facing thinking levels: the eight standard levels plus the scheduler sentinel. */
+export type EffortId = 'off' | 'on' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'auto'
 
 /** Wire levels the auto scheduler may pick (never `off`, never `auto`). */
-export type AutoEffort = Exclude<EffortId, 'auto' | 'off'>
+export type AutoEffort = 'low' | 'high' | 'max'
+
+/** The eight standard levels (excluding the `auto` scheduler sentinel). */
+export const STANDARD_LEVELS: readonly EffortId[] = [
+  'off', 'on', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max',
+] as const
 
 /** Runtime guard: is this a level the plugin understands? */
 export function isEffortId(value: unknown): value is EffortId {
-  return value === 'off' || value === 'low' || value === 'high' || value === 'max' || value === 'auto'
+  return STANDARD_LEVELS.includes(value as EffortId) || value === 'auto'
 }
 
 /**
  * Fail-loud config validation: reject an out-of-band level (e.g. a stray
- * `medium` from an old profile) instead of silently injecting it into the
+ * value from an old profile) instead of silently injecting it into the
  * model request, where dsh would throw `UNSUPPORTED_REASONING_EFFORT`.
  */
 export function assertEffortId(value: unknown, where: string): asserts value is EffortId {
   if (!isEffortId(value)) {
-    throw new TypeError(`${where}: invalid thinking level ${JSON.stringify(value)} (expected off | low | high | max | auto)`)
+    throw new TypeError(
+      `${where}: invalid thinking level ${JSON.stringify(value)} `
+      + '(expected off | on | minimal | low | medium | high | xhigh | max | auto)',
+    )
   }
 }
 
@@ -188,15 +200,25 @@ export interface EffortInjectionDecision {
  * scheduled level is lifted to the model's highest advertised thinking level
  * (Qwen3.6 advertises off/high only → a scheduled low becomes high), and a
  * model advertising no thinking level at all yields nothing (strip).
+ *
+ * `on` is the enable-thinking toggle, not an exact wire level: it prefers the
+ * advertised `high` (the official default strength), else the model's highest
+ * thinking level.
  * @param level - the scheduled or manually selected level.
  * @param efforts - the model's advertised effort ids (escalation-ordered).
  * @returns the level to inject, or `undefined` when the model cannot take it.
  */
 export function clampToEfforts(level: EffortId, efforts: readonly string[]): EffortId | undefined {
   if (efforts.includes(level)) return level
-  // off and auto are not thinking levels; the advertised list is escalation-ordered.
-  const thinking = efforts.filter(id => id !== 'off' && id !== 'auto')
+  // on / off / auto are not thinking levels; the advertised list is
+  // escalation-ordered.
+  const thinking = efforts.filter(id => id !== 'on' && id !== 'off' && id !== 'auto')
   if (thinking.length === 0) return undefined
+  if (level === 'on') {
+    // Enable thinking at the default strength: prefer `high` when advertised.
+    if (efforts.includes('high')) return 'high'
+    return thinking[thinking.length - 1] as EffortId
+  }
   return thinking[thinking.length - 1] as EffortId
 }
 
@@ -208,7 +230,9 @@ export function clampToEfforts(level: EffortId, efforts: readonly string[]): Eff
  *   previous route or session header) is stripped.
  * - A manual wire selection passes through unchanged when the model advertises
  *   it; an unsupported manual pick is stripped rather than clamped (the user
- *   asked for that exact level).
+ *   asked for that exact level). `on` is the exception — it is the
+ *   enable-thinking toggle, clamped to the model's default strength (`high` or
+ *   its highest thinking level) rather than an exact wire value.
  * - `auto` (or no selection) resolves through the scheduler; the result is
  *   clamped to the model's advertised levels, so a scheduled `low` on a model
  *   that only takes off/high (Qwen3.6) becomes `high` instead of an error.
@@ -227,7 +251,12 @@ export function resolveEffortInjection(input: EffortInjectionInput): EffortInjec
   if (isEffortId(seedEffort) && seedEffort !== 'auto') {
     // A manual pick is the user asking for that exact level: pass it through
     // only when the model advertises it, strip it otherwise (no clamping of an
-    // explicit choice).
+    // explicit choice). `on` is the enable-thinking toggle, not a wire level:
+    // clamp it to the model's default thinking strength.
+    if (seedEffort === 'on') {
+      const lifted = clampToEfforts('on', efforts)
+      return lifted === undefined ? { inject: false } : { inject: true, level: lifted }
+    }
     return efforts.includes(seedEffort)
       ? { inject: true, level: seedEffort }
       : { inject: false }

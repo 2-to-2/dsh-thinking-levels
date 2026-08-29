@@ -76,15 +76,15 @@ describe('auto scheduler', () => {
 })
 
 describe('effort-level validation', () => {
-  it('accepts exactly the five levels', () => {
-    for (const level of ['off', 'low', 'high', 'max', 'auto']) {
+  it('accepts the eight standard levels plus auto', () => {
+    for (const level of ['off', 'on', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'auto']) {
       expect(isEffortId(level)).toBe(true)
       expect(() => assertEffortId(level, 'test')).not.toThrow()
     }
   })
 
   it('rejects out-of-band values that dsh would reject per request', () => {
-    for (const bad of ['medium', 'xhigh', 3, null, undefined, {}]) {
+    for (const bad of ['ultra', 'reasoning', 3, null, undefined, {}]) {
       expect(isEffortId(bad)).toBe(false)
       expect(() => assertEffortId(bad, 'test')).toThrow(TypeError)
     }
@@ -186,5 +186,24 @@ describe('resolveEffortInjection — model capability guard', () => {
     const toggle = { efforts: ['off', 'high'], toggleOnly: true }
     expect(resolveEffortInjection(base({ ...toggle, seedEffort: 'off' }))).toEqual({ inject: false })
     expect(resolveEffortInjection(base({ ...toggle, seedEffort: 'high' }))).toEqual({ inject: true, level: 'high' })
+  })
+
+  it('clamps the On toggle to the model’s default strength (high), never an exact wire level', () => {
+    // `on` is the enable-thinking toggle: it must never be sent verbatim — it
+    // lifts to the advertised high, or the highest thinking level otherwise.
+    const toggle = { efforts: ['off', 'high'], toggleOnly: true }
+    expect(resolveEffortInjection(base({ ...toggle, seedEffort: 'on' }))).toEqual({ inject: true, level: 'high' })
+    expect(resolveEffortInjection(base({ efforts: ['off', 'minimal', 'max'], seedEffort: 'on' })))
+      .toEqual({ inject: true, level: 'max' })
+    expect(resolveEffortInjection(base({ efforts: ['off'], seedEffort: 'on' }))).toEqual({ inject: false })
+  })
+
+  it('passes the extended wire levels through when the model advertises them', () => {
+    // A custom gateway may declare minimal / medium / xhigh in reasoningEfforts;
+    // the manual pick then passes through unchanged (custom wire mapping).
+    expect(resolveEffortInjection(base({ efforts: ['off', 'minimal', 'medium', 'high', 'xhigh', 'max'], seedEffort: 'medium' })))
+      .toEqual({ inject: true, level: 'medium' })
+    expect(resolveEffortInjection(base({ efforts: ['off', 'minimal', 'medium', 'high', 'xhigh', 'max'], seedEffort: 'xhigh' })))
+      .toEqual({ inject: true, level: 'xhigh' })
   })
 })

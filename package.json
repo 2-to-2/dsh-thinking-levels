@@ -1,6 +1,6 @@
 {
   "name": "dsh-thinking-levels",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "DSH host plugin: thinking-level (reasoning_effort) control for dsh — auto-adjust per tool round, with optional manual lock and per-tool timing telemetry.",
   "repository": {
     "type": "git",
@@ -11,7 +11,16 @@
     "lib",
     "cordis.patch.yml",
     "README.md",
-    "README.zh.md"
+    "README.zh.md",
+    "README.ja.md",
+    "README.ko.md",
+    "INSTALL.md",
+    "INSTALL.zh.md",
+    "INSTALL.ja.md",
+    "INSTALL.ko.md",
+    "CHANGELOG.md",
+    "CHANGELOG.ja.md",
+    "CHANGELOG.ko.md"
   ],
   "main": "lib/index.js",
   "types": "lib/index.d.ts",

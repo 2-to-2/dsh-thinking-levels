@@ -1,7 +1,8 @@
 /**
  * dsh-thinking-levels host plugin: injects a user-selected or auto-scheduled
- * `reasoning_effort` into every `agent/request` waterfall (levels: off / low /
- * high / max / auto), and records per-tool wall-clock durations for telemetry.
+ * `reasoning_effort` into every `agent/request` waterfall (levels: off / on /
+ * minimal / low / medium / high / xhigh / max / auto), and records per-tool
+ * wall-clock durations for telemetry.
  *
  * Model-aware since v0.5.0:
  * - A model that does not advertise reasoning metadata (custom
@@ -9,7 +10,8 @@
  *   NEVER receives a `reasoningEffort` — dsh rejects unsupported efforts per
  *   request (UNSUPPORTED_REASONING_EFFORT). Unsupported fields are stripped.
  * - Manual selections pass through unchanged, including `low` on dsh rc.7+
- *   where the level is native.
+ *   where the level is native. `on` (the enable-thinking toggle) is clamped
+ *   to the model's default strength instead of an exact wire level.
  * - The auto scheduler never picks `low` (no surprise low injection).
  * - On rc.6-era adapters (efforts without `low`) a configurer-confirmed model
  *   override may advertise `low` so the selector shows it and the passthrough
@@ -54,7 +56,7 @@ export interface ModelCapabilityOverride {
 /** Plugin settings. */
 export interface ThinkingLevelsConfig {
   enabled: boolean
-  /** User-selected level: off / low / high / max fix the wire level; `auto` schedules per step. */
+  /** User-selected level: off / on / minimal / low / medium / high / xhigh / max fix the wire level; `auto` schedules per step. */
   level: EffortId
   /** Scheduler preference: allow dropping below the `high` hub. */
   allowDowngrade: boolean
@@ -64,7 +66,7 @@ export interface ThinkingLevelsConfig {
   models: Record<string, ModelCapabilityOverride>
 }
 
-const effortId = z.union(['off', 'low', 'high', 'max'])
+const effortId = z.union(['off', 'on', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
 
 /**
  * Composition-entry schema: what a dsh profile may configure at assembly
@@ -74,7 +76,7 @@ const effortId = z.union(['off', 'low', 'high', 'max'])
  */
 export const Config: z<ThinkingLevelsConfig> = z.object({
   enabled: z.boolean().default(true),
-  level: z.union(['off', 'low', 'high', 'max', 'auto']).default('auto'),
+  level: z.union(['off', 'on', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'auto']).default('auto'),
   allowDowngrade: z.boolean().default(true),
   allowUpgrade: z.boolean().default(false),
   models: z.dict(z.object({

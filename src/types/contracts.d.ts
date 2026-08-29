@@ -35,6 +35,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 
   /** Translate thunk bound to one dictionary namespace. */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- the type parameter constrains the namespace key
   export type TranslateNS<_N extends keyof LocaleNamespaceMap & string> =
     (key: string, params?: Record<string, unknown>) => string
 

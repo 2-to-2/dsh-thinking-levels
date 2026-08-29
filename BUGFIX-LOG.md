@@ -143,6 +143,25 @@
 | v0.4.1 | adapter 包装响应式（`llm/adapters-updated`） |
 | v0.5.0 | 模型能力感知：非推理模型剥离 effort（不传不支持字段）；rc.6 注入显示 low + 透传；rc.7+ 不改 low；新增 models 配置节 |
 
+---
+
+## v0.6.0 — 档位体系对标 dsh-thinking-effort + 渲染 + 多语言
+
+- **需求（用户）**：
+  1. 思考级别 effort 对标 dsh-thinking-effort：`off/on/minimal/low/medium/high/xhigh/max` 8 档 + 自定义传输字段映射；
+  2. 画面渲染借鉴 dsh-thinking-effort（当时设置展示效果不好）；
+  3. 多语言说明学习 dsh-thinking-effort（全套四语）。
+- **用户确认**：保持 plugins 内部卡片形态（不新增独立设置页），仅借鉴思考级别配置的展示元素/样式；多语言做全套四语（README+INSTALL+CHANGELOG × en/zh/ja/ko + locales 四语）。
+- **实现**：
+  1. `EffortId` 扩展为 9 值：`off/on/minimal/low/medium/high/xhigh/max/auto`；`on` 语义 = 只传 thinking enable（enable_thinking true），**不传 think effort**——注入层 clamp 到模型默认强度（high），由 thinkingFormat 序列化为 enable_thinking；`minimal/medium/xhigh` 对自定义网关透传、对官方适配器折叠到 high。
+  2. 能力编辑器改为 effort 风格：供应商分组折叠、模型行徽标（T/IMG/上下文）、逐档 wire 编辑器（勾选 + 填线上值，如 high → ultra）、搜索、一键预设（官方/通用）、恢复默认。
+  3. locales 补 ja/ko 全套 68 key；新增 README.{md,zh,ja,ko} / INSTALL.{md,zh,ja,ko} / CHANGELOG.{md,ja,ko}，语言切换链接同款。
+- **关键坑（pi-ai schema 键空间）**：`llm-pi-ai` 的 `reasoningEfforts` 表键是**固定 7 档**（`off/minimal/low/medium/high/xhigh/max`，`z.dict` 键由 `THINKING_LEVELS` 约束），**不接受 `on` 键**。因此能力编辑器档位网格用 7 档（与 effort 的 ALL_LEVELS 一致）；`on` 只存在于选择器/注入层（toggle 模型 Off/On），由 `off`+`high` 表对表达。
+- **关键坑（toggle 模型误标 effort）**：初版 `applyDraft`/`applyPreset` 把 `supportsReasoningEffort` 无条件置 true——Qwen3.6 这类 toggle-only 模型（只接受 enable_thinking）会被误标为 effort 模型，导致 reasoning_effort 被发给网关（400）。修复：仅当原值已为 true 或勾选了扩展档位（minimal/low/medium/xhigh/max）才置 true；preset 完全不动 compat。
+- **验证**：vitest 46 例全过（含 on clamp、扩展档位透传新用例）；typecheck 0；lint 0（顺手清了遗留 `_N` 与 `effortLevelsOf`）；build 成功（client bundle 50.7 kB）。
+
+---
+
 ## 通用排查线索
 
 - 插件"已停用/未挂载"无错误：检查 profile 与 `$DSH_HOME/cordis.patch.yml` 的 `disabled` 条目（桌面端可能改写 profile patch 文件）；检查 host 值依赖是否在 profile 解析树内。

@@ -14,7 +14,7 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { ThinkingLevelsConfig } from '../index.ts'
-import { NS, en, zh } from './locales.ts'
+import { NS, en, ja, ko, zh } from './locales.ts'
 import { ThinkingLevelsCard, type ThinkingLevelsCardInjected } from './card.tsx'
 
 /** The settings namespace the host half registers (kept in lockstep with src/index.ts). */
@@ -28,7 +28,7 @@ export const inject = ['slots', 'locale', 'settingsScope']
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
-  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-thinking-levels: dictionaries')
+  ctx.effect(() => ctx.locale.register(NS, { zh, en, ja, ko }), 'dsh-thinking-levels: dictionaries')
 
   ctx.slots.inject('settings.plugin.item', function* () {
     yield ctx.slots.register({
