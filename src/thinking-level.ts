@@ -238,19 +238,25 @@ export function clampToEfforts(level: EffortId, efforts: readonly string[]): Eff
 export function resolveEffortInjection(input: EffortInjectionInput): EffortInjectionDecision {
   const { supportsReasoning, seedEffort, selected, efforts, toggleOnly } = input
   if (!supportsReasoning) return { inject: false }
-  if (toggleOnly && seedEffort === 'off') {
-    // Toggle-only Off: the provider omits the effort, which flips
-    // enable_thinking to false. Strip instead of injecting.
+  if (toggleOnly) {
+    // Toggle-only model (Qwen3.6 / mimo-v2.5 style): thinking is an on/off
+    // switch expressed through the provider's enable_thinking semantics, never
+    // a reasoning_effort level.
+    // - Off → inject `off`: the provider recognizes it (pi-ai maps a declared
+    //   off to "omit the reasoning option"; the short-circuit adapter turns it
+    //   into enable_thinking:false). Stripping instead would leave the
+    //   provider's default (thinking on) — Off must be explicit.
+    // - On / unset → no effort at all: the provider's default is thinking on
+    //   (pi-ai omits the reasoning option; the short-circuit adapter sends
+    //   enable_thinking:true when no explicit off arrives). Injecting any
+    //   level would either be rejected (unknown level) or ride a
+    //   reasoning_effort the endpoint does not take.
+    if (seedEffort === 'off') return { inject: true, level: 'off' }
     return { inject: false }
   }
   if (seedEffort === 'on') {
-    // The On toggle: enable thinking at the provider's default strength. On a
-    // toggle-only model that is the advertised `high` (pi-ai serializes it as
-    // enable_thinking, no reasoning_effort); effort-capable models never
-    // advertise `on`, so a stray `on` is stripped, never lifted to `high`.
-    return toggleOnly && efforts.includes('high')
-      ? { inject: true, level: 'high' }
-      : { inject: false }
+    // A stray On on an effort-capable model: never a wire level, stripped.
+    return { inject: false }
   }
   if (isEffortId(seedEffort) && seedEffort !== 'auto') {
     // A manual pick is the user asking for that exact level: pass it through
