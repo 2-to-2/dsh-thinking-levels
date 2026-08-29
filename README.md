@@ -170,6 +170,12 @@ automatically**:
 - Soft-coupled: skips the write silently when `llm-openai-completions` is not installed (its
   namespace is unregistered).
 
+The takeover mechanism as a whole — control-plane contract (who is taken over,
+how a control-layer plugin decides and injects) and transport-plane wire
+contract — is standardized in the
+**[Takeover Control Spec](https://github.com/drscrewdriver/dsh-llm-openai-completions/blob/main/docs/takeover-spec.md)**;
+this plugin is the reference control-layer implementation of it.
+
 ## Dependency note
 
 The host half does **not** value-depend on `@deepseek-ai/dsh-settings` (settings registration goes through the cordis `settings` service provided by the dsh runtime) — no need to install official packages into the profile manually. `dependencies` is just `@deepseek-ai/schemastery` (installed automatically with the package).

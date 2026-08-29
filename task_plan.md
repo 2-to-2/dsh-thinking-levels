@@ -30,11 +30,14 @@
 - medium/xhigh 对 deepseek 官方模型经 clamp 折叠到 high（README 已有该事实）
 - 自定义传输映射：reasoningEfforts 表 {level: wire}，UI 每档 wire 输入框（off 留空=null 不发送）
 - 卡片内样式保持 CSS 变量（与插件页协调），布局/元素/交互学 effort
+- **短路名单门控（用户确认分层规则）**：非 deepseek 模型按「短路接管 → thinking → effort 等级 → 编辑 effort 表」分层；toggle 折叠/注入/编辑器只对 llm-openai-completions 名单内 provider 生效，pi-ai 原生路由（mimo）保持 off/high 可见、不出现在自定义模型编辑器（d2cf76b）
 
 ## Errors
 | Error | Attempt | Resolution |
 |-------|---------|------------|
 | effortLevelsOf 未使用 lint | 1 | 删除（重构后无引用） |
+| mimo high 被折叠隐藏（上轮 toggle 无条件折叠） | 1 | 折叠只对短路名单内 provider（piAiPosture 加 takeover 参数） |
+| local-qwen 显示 effort 列表 / mimo 出现在自定义模型编辑器 | 1 | 编辑器只列短路名单内 provider（card.tsx 过滤 takeoverListOf） |
 | `_N` 未使用参数 lint（历史遗留） | 1 | 行内 eslint-disable（泛型约束必需） |
 | applyDraft/preset 误标 toggle 模型为 effort | 1 | 仅原值 true 或勾选扩展档位才置 supportsReasoningEffort；preset 不动 compat |
 | pi-ai schema 拒绝 on 表键 | 1 | 编辑器网格退回 7 档（effort ALL_LEVELS 同款），on 只留注入层 |
