@@ -126,6 +126,7 @@ describe('reasoningEffortSupported', () => {
 })
 
 describe('resolveEffortInjection — model capability guard', () => {
+  const FULL_EFFORTS = ['off', 'low', 'high', 'max', 'auto']
   const base = (over: Partial<EffortInjectionInput>): EffortInjectionInput => ({
     supportsReasoning: true,
     seedEffort: undefined,
@@ -133,6 +134,8 @@ describe('resolveEffortInjection — model capability guard', () => {
     recentCalls: [],
     allowDowngrade: true,
     allowUpgrade: true,
+    efforts: FULL_EFFORTS,
+    toggleOnly: false,
     ...over,
   })
 
@@ -160,5 +163,28 @@ describe('resolveEffortInjection — model capability guard', () => {
 
   it('falls back to the configured default when the seed carries no effort', () => {
     expect(resolveEffortInjection(base({ seedEffort: undefined, selected: 'high' }))).toEqual({ inject: true, level: 'high' })
+  })
+
+  it('clamps a scheduled low to the model’s highest thinking level', () => {
+    // Qwen3.6 advertises off/high only (the selector is an On/Off toggle):
+    // the fresh-prompt auto schedule resolves low, which the adapter would
+    // reject — the plugin lifts it to high instead of erroring.
+    const toggle = { efforts: ['off', 'high'], toggleOnly: true }
+    expect(resolveEffortInjection(base({ ...toggle, seedEffort: undefined }))).toEqual({ inject: true, level: 'high' })
+    const heavy = [{ name: 'mcp__docs', argsSize: 4000 }]
+    expect(resolveEffortInjection(base({ ...toggle, seedEffort: 'auto', recentCalls: heavy }))).toEqual({ inject: true, level: 'high' })
+  })
+
+  it('strips an unsupported manual pick instead of clamping it', () => {
+    // A manual low on a model that advertises no low is the user asking for an
+    // exact level the API cannot take; the request must not fail per-round.
+    expect(resolveEffortInjection(base({ efforts: ['off', 'high', 'max'], seedEffort: 'low' })))
+      .toEqual({ inject: false })
+  })
+
+  it('strips Off on a toggle-only model (pi-ai omits the effort to disable thinking)', () => {
+    const toggle = { efforts: ['off', 'high'], toggleOnly: true }
+    expect(resolveEffortInjection(base({ ...toggle, seedEffort: 'off' }))).toEqual({ inject: false })
+    expect(resolveEffortInjection(base({ ...toggle, seedEffort: 'high' }))).toEqual({ inject: true, level: 'high' })
   })
 })

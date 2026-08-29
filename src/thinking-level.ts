@@ -164,6 +164,14 @@ export interface EffortInjectionInput {
   allowDowngrade: boolean
   /** Scheduler preference: allow lifting above `high` to `max`. */
   allowUpgrade: boolean
+  /** The model's advertised effort ids (including plugin masks like `auto`). */
+  efforts: readonly string[]
+  /**
+   * The model takes only an on/off toggle (Qwen3.6-style): `off` must be
+   * stripped (pi-ai expresses it by omitting the effort, not by sending an
+   * `off` value), and `on` maps to the highest advertised thinking level.
+   */
+  toggleOnly: boolean
 }
 
 /** The resolved action for one `agent/request`. */
@@ -175,24 +183,54 @@ export interface EffortInjectionDecision {
 }
 
 /**
+ * Clamp a level to the ones the model actually advertises. The adapter rejects
+ * any other value per request (UNSUPPORTED_REASONING_EFFORT), so an unsupported
+ * scheduled level is lifted to the model's highest advertised thinking level
+ * (Qwen3.6 advertises off/high only → a scheduled low becomes high), and a
+ * model advertising no thinking level at all yields nothing (strip).
+ * @param level - the scheduled or manually selected level.
+ * @param efforts - the model's advertised effort ids (escalation-ordered).
+ * @returns the level to inject, or `undefined` when the model cannot take it.
+ */
+export function clampToEfforts(level: EffortId, efforts: readonly string[]): EffortId | undefined {
+  if (efforts.includes(level)) return level
+  // off and auto are not thinking levels; the advertised list is escalation-ordered.
+  const thinking = efforts.filter(id => id !== 'off' && id !== 'auto')
+  if (thinking.length === 0) return undefined
+  return thinking[thinking.length - 1] as EffortId
+}
+
+/**
  * Decide what one model request should do with `reasoningEffort`.
  *
  * - A model without reasoning support never receives the field: dsh would
  *   throw UNSUPPORTED_REASONING_EFFORT, so the seed's inherited effort (from a
  *   previous route or session header) is stripped.
- * - A manual wire selection (off/low/high/max) passes through unchanged.
- * - `auto` (or no selection) resolves through the scheduler; a scheduled `low`
- *   only reaches models that advertise the level (the capability guard above
- *   already stripped everything from non-supporting models).
+ * - A manual wire selection passes through unchanged when the model advertises
+ *   it; an unsupported manual pick is stripped rather than clamped (the user
+ *   asked for that exact level).
+ * - `auto` (or no selection) resolves through the scheduler; the result is
+ *   clamped to the model's advertised levels, so a scheduled `low` on a model
+ *   that only takes off/high (Qwen3.6) becomes `high` instead of an error.
  *
  * @param input - model capability plus the seed's current effort.
  * @returns whether to inject and the level to set.
  */
 export function resolveEffortInjection(input: EffortInjectionInput): EffortInjectionDecision {
-  const { supportsReasoning, seedEffort, selected } = input
+  const { supportsReasoning, seedEffort, selected, efforts, toggleOnly } = input
   if (!supportsReasoning) return { inject: false }
+  if (toggleOnly && seedEffort === 'off') {
+    // Qwen3.6-style Off: pi-ai has no `off` wire level — it omits the effort,
+    // which flips enable_thinking to false. Strip instead of injecting.
+    return { inject: false }
+  }
   if (isEffortId(seedEffort) && seedEffort !== 'auto') {
-    return { inject: true, level: seedEffort }
+    // A manual pick is the user asking for that exact level: pass it through
+    // only when the model advertises it, strip it otherwise (no clamping of an
+    // explicit choice).
+    return efforts.includes(seedEffort)
+      ? { inject: true, level: seedEffort }
+      : { inject: false }
   }
   const level = decideEffort({
     recentCalls: input.recentCalls,
@@ -200,7 +238,8 @@ export function resolveEffortInjection(input: EffortInjectionInput): EffortInjec
     allowDowngrade: input.allowDowngrade,
     allowUpgrade: input.allowUpgrade,
   })
-  return { inject: true, level }
+  const clamped = clampToEfforts(level, efforts)
+  return clamped === undefined ? { inject: false } : { inject: true, level: clamped }
 }
 
 /** Wall-clock delta of one tool call, for the timing telemetry. */

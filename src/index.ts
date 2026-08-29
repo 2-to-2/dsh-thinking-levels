@@ -177,12 +177,21 @@ interface LlmRegistration {
  * adapter. `auto` is a mask the plugin resolves per request; `low` is only
  * added when the model override confirms the level, so rc.7+ models (which
  * already advertise low) and unconfirmed models stay untouched.
+ *
+ * A thinking model WITHOUT effort support (Qwen3.6-style, per the llm-pi-ai
+ * config: `reasoningEfforts` present but `compat.supportsReasoningEffort` not
+ * true) gets its selector collapsed to a plain On/Off toggle: `off` disables
+ * thinking, `on` maps to the `high` level, which pi-ai serializes as
+ * `enable_thinking: true` under `thinkingFormat: qwen`. No auto/low masks are
+ * offered for these — there is nothing to schedule.
  * @param llm - the resolved `llm` service, when present.
  * @param overrideFor - model override lookup, keyed `provider/model`.
+ * @param piAiFor - llm-pi-ai config capability lookup, keyed `provider/model`.
  */
 function advertiseModelCapability(
   llm: { adapters?: Map<string, LlmRegistration> } | undefined,
   overrideFor: (provider: string, model: string) => ModelCapabilityOverride | undefined,
+  piAiFor: (provider: string, model: string) => { thinkingOn: boolean; supportsEffort: boolean } | undefined,
 ): void {
   for (const registration of llm?.adapters?.values() ?? []) {
     const adapter = registration.adapter
@@ -191,6 +200,17 @@ function advertiseModelCapability(
       const info = await original(provider, model, signal)
       const reasoning = info.reasoning
       if (reasoning === undefined) return info
+      const piCap = piAiFor(provider, model)
+      if (piCap?.thinkingOn === true && piCap.supportsEffort === false) {
+        info.reasoning = {
+          ...reasoning,
+          efforts: [
+            { id: 'off', name: 'Off' },
+            { id: 'high', name: 'On' },
+          ],
+        }
+        return info
+      }
       const efforts = [...(reasoning.efforts ?? [])]
       if (!efforts.some(effort => effort.id === 'auto')) efforts.push(AUTO_EFFORT)
       const override = overrideFor(provider, model)
@@ -216,6 +236,12 @@ interface ModelCapability {
   efforts: readonly string[]
   /** The model accepts image input (from `inputModalities`). */
   vision: boolean
+  /**
+   * The model takes only an on/off thinking toggle (Qwen3.6-style, per the
+   * llm-pi-ai config): any effort level would be rejected, so the selector
+   * shows Off/On and `off` means "omit the effort" (enable_thinking false).
+   */
+  toggleOnly: boolean
 }
 
 /** Minimal face of the llm service's model-info query (typed locally). */
@@ -226,10 +252,37 @@ interface LlmServiceLike {
   }>
 }
 
+/** Minimal face of the settings service's cross-namespace read (typed locally). */
+interface SettingsReadLike {
+  get?: (ns: string) => unknown
+}
+
+/**
+ * The llm-pi-ai posture of one model, read from the live settings namespace
+ * (the capability card writes `reasoningEfforts` and `compat` there). Absent
+ * when the route/model is not configured.
+ */
+function piAiPosture(
+  ctx: Context,
+  provider: string,
+  model: string,
+): { thinkingOn: boolean; supportsEffort: boolean } | undefined {
+  const settings = ctx.get('settings') as SettingsReadLike | undefined
+  const section = settings?.get?.('llm-pi-ai') as { providers?: Record<string, { models?: Array<Record<string, unknown>> }> } | undefined
+  const entry = section?.providers?.[provider]?.models?.find(candidate => candidate['id'] === model)
+  if (entry === undefined) return undefined
+  const efforts = entry['reasoningEfforts']
+  const compat = entry['compat']
+  const thinkingOn = typeof efforts === 'object' && efforts !== null && !Array.isArray(efforts)
+  const supportsEffort = typeof compat === 'object' && compat !== null
+    && (compat as Record<string, unknown>)['supportsReasoningEffort'] === true
+  return { thinkingOn, supportsEffort }
+}
+
 const CAPABILITY_CACHE_KEY_SEPARATOR = '\u0000'
 
 /** A model that cannot be resolved is treated as non-reasoning: never inject. */
-const UNRESOLVABLE_CAPABILITY: ModelCapability = { supportsReasoning: false, efforts: [], vision: false }
+const UNRESOLVABLE_CAPABILITY: ModelCapability = { supportsReasoning: false, efforts: [], vision: false, toggleOnly: false }
 
 /** Runtime model-capability lookup with a per-route cache. */
 function capabilityResolver(ctx: Context): {
@@ -248,10 +301,12 @@ function capabilityResolver(ctx: Context): {
       try {
         const info = await llm?.resolveModelInfo?.(provider, model)
         const efforts = info?.reasoning?.efforts?.map(effort => effort.id) ?? []
+        const posture = piAiPosture(ctx, provider, model)
         capability = {
           supportsReasoning: reasoningEffortSupported(info?.reasoning),
           efforts,
           vision: Array.isArray(info?.inputModalities) && info.inputModalities.includes('image'),
+          toggleOnly: posture?.thinkingOn === true && posture.supportsEffort === false,
         }
       } catch {
         capability = UNRESOLVABLE_CAPABILITY
@@ -327,6 +382,8 @@ export function apply(ctx: Context, config: ThinkingLevelsConfig = DEFAULT_CONFI
       recentCalls: calls,
       allowDowngrade: cfg.allowDowngrade,
       allowUpgrade: cfg.allowUpgrade,
+      efforts: capabilityFor.efforts,
+      toggleOnly: capabilityFor.toggleOnly,
     })
     if (!decision.inject) {
       // The model cannot take any effort: drop an inherited one so dsh does
@@ -356,13 +413,19 @@ export function apply(ctx: Context, config: ThinkingLevelsConfig = DEFAULT_CONFI
   const llm = ctx.get('llm') as { adapters?: Map<string, LlmRegistration> } | undefined
   const overrideFor = (provider: string, model: string): ModelCapabilityOverride | undefined =>
     current().models[`${provider}/${model}`]
-  advertiseModelCapability(llm, overrideFor)
+  // Read the live llm-pi-ai config for the thinking/effort posture the card
+  // wrote there: a model with `reasoningEfforts` but without effort support
+  // (Qwen3.6) is collapsed to an On/Off toggle in the selector.
+  const piAiFor = (provider: string, model: string): { thinkingOn: boolean; supportsEffort: boolean } | undefined =>
+    piAiPosture(ctx, provider, model)
+  advertiseModelCapability(llm, overrideFor, piAiFor)
   const onAny = ctx.on as unknown as (event: string, listener: (...args: never[]) => unknown) => void
   onAny('llm/adapters-updated', () => {
     capability.clear()
     advertiseModelCapability(
       ctx.get('llm') as { adapters?: Map<string, LlmRegistration> } | undefined,
       overrideFor,
+      piAiFor,
     )
   })
 

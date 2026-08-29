@@ -368,9 +368,14 @@ function ModelCapabilities(props: {
                     } else {
                       // Thinking on: a table must exist so dsh accepts the level
                       // that drives the wire's enable_thinking. Qwen3.6-style
-                      // models keep the fixed default (high); effort-capable
-                      // ones (Qwen3.8) pick levels below.
-                      row['reasoningEfforts'] = effortTableOf(effortLevelsOf(row))
+                      // models (no effort) declare off + the fixed default high
+                      // (the selector is collapsed to an On/Off toggle); effort-
+                      // capable ones (Qwen3.8) pick their levels below.
+                      const rowId = typeof row['id'] === 'string' ? row['id'] : ''
+                      const effortCapable = supportsEffortOf(row) || EFFORT_MODEL_PATTERN.test(rowId)
+                      row['reasoningEfforts'] = effortCapable
+                        ? effortTableOf(effortLevelsOf(row))
+                        : { off: null, high: 'high' }
                     }
                   })
                 }}
