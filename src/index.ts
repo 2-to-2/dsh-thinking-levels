@@ -212,11 +212,16 @@ function advertiseModelCapability(
       if (reasoning === undefined) return info
       const piCap = piAiFor(provider, model)
       if (piCap?.thinkingOn === true && piCap.supportsEffort === false) {
+        // Toggle-only model (Qwen3.6-style): the selector shows Off/On. `on`
+        // is NOT an effort level — it only flips enable_thinking true (the
+        // thinking format serializes it without a reasoning_effort). An
+        // effort-capable model never advertises `on`; a manual `on` pick on
+        // one is stripped at request time.
         info.reasoning = {
           ...reasoning,
           efforts: [
             { id: 'off', name: 'Off' },
-            { id: 'high', name: 'On' },
+            { id: 'on', name: 'On' },
           ],
         }
         return info

@@ -198,27 +198,20 @@ export interface EffortInjectionDecision {
  * Clamp a level to the ones the model actually advertises. The adapter rejects
  * any other value per request (UNSUPPORTED_REASONING_EFFORT), so an unsupported
  * scheduled level is lifted to the model's highest advertised thinking level
- * (Qwen3.6 advertises off/high only → a scheduled low becomes high), and a
- * model advertising no thinking level at all yields nothing (strip).
- *
- * `on` is the enable-thinking toggle, not an exact wire level: it prefers the
- * advertised `high` (the official default strength), else the model's highest
- * thinking level.
+ * (a toggle-only model advertises off/on → a scheduled low becomes `on`, which
+ * enables thinking without sending a think effort), and a model advertising no
+ * thinking level at all yields nothing (strip).
  * @param level - the scheduled or manually selected level.
  * @param efforts - the model's advertised effort ids (escalation-ordered).
  * @returns the level to inject, or `undefined` when the model cannot take it.
  */
 export function clampToEfforts(level: EffortId, efforts: readonly string[]): EffortId | undefined {
   if (efforts.includes(level)) return level
-  // on / off / auto are not thinking levels; the advertised list is
-  // escalation-ordered.
-  const thinking = efforts.filter(id => id !== 'on' && id !== 'off' && id !== 'auto')
+  // off and auto are not thinking levels; the advertised list is
+  // escalation-ordered. `on` may appear only on toggle-only models, where it
+  // is the (single) thinking level.
+  const thinking = efforts.filter(id => id !== 'off' && id !== 'auto')
   if (thinking.length === 0) return undefined
-  if (level === 'on') {
-    // Enable thinking at the default strength: prefer `high` when advertised.
-    if (efforts.includes('high')) return 'high'
-    return thinking[thinking.length - 1] as EffortId
-  }
   return thinking[thinking.length - 1] as EffortId
 }
 
@@ -251,12 +244,10 @@ export function resolveEffortInjection(input: EffortInjectionInput): EffortInjec
   if (isEffortId(seedEffort) && seedEffort !== 'auto') {
     // A manual pick is the user asking for that exact level: pass it through
     // only when the model advertises it, strip it otherwise (no clamping of an
-    // explicit choice). `on` is the enable-thinking toggle, not a wire level:
-    // clamp it to the model's default thinking strength.
-    if (seedEffort === 'on') {
-      const lifted = clampToEfforts('on', efforts)
-      return lifted === undefined ? { inject: false } : { inject: true, level: lifted }
-    }
+    // explicit choice). `on` is advertised only by toggle-only models — there
+    // it enables thinking (enable_thinking true) without sending a think
+    // effort; effort-capable models never advertise `on`, so a stray `on` is
+    // stripped rather than lifted to `high`.
     return efforts.includes(seedEffort)
       ? { inject: true, level: seedEffort }
       : { inject: false }

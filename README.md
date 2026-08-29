@@ -23,7 +23,7 @@ In a multi-step tool chain, the model re-thinks before **every** tool call — a
 | Level | Meaning | Where |
 |---|---|---|
 | `off` | thinking disabled (manual only — never auto-picked) | model selector / default level |
-| `on` | thinking enabled at the model's default strength (e.g. `high`); the Off/On toggle for toggle-only models | model selector / default level |
+| `on` | thinking enabled (toggle-only models only): sends `enable_thinking`, never a think effort | model selector / default level |
 | `minimal` | least effort (very light tasks) | model selector / default level |
 | `low` | manual pick for simple chat tasks (cheap rounds stay cheap) | model selector / default level |
 | `medium` | medium effort | model selector / default level |
@@ -32,7 +32,7 @@ In a multi-step tool chain, the model re-thinks before **every** tool call — a
 | `max` | heavy work | model selector / default level |
 | `auto` | **mask**: schedule per step from the recent tool-call history, resolved to a wire level before submission | model selector (injected by the plugin) / default level |
 
-Wire-level facts (verified against the official DeepSeek docs and dsh's `llm-deepseek` adapter): `low` maps 1:1 on deepseek-v4-flash / v4-pro, while `medium` / `xhigh` collapse onto `high`. The adapter accepts `off | low | high | max` and rejects anything else with `UNSUPPORTED_REASONING_EFFORT` — `auto` is the plugin's mask layer, never sent to the API, always resolved to a concrete wire level before injection.
+Wire-level facts (verified against the official DeepSeek docs and dsh's `llm-deepseek` adapter): `low` maps 1:1 on deepseek-v4-flash / v4-pro, while `medium` / `xhigh` collapse onto `high`. The adapter accepts `off | low | high | max` and rejects anything else with `UNSUPPORTED_REASONING_EFFORT` — `auto` is the plugin's mask layer, never sent to the API, always resolved to a concrete wire level before injection. `on` is **not** an effort level: it is advertised only by toggle-only models (Qwen3.6-style), and it only flips `enable_thinking` true — no `reasoning_effort` is sent; an effort-capable model never advertises `on`, so a manual `on` pick on one is stripped.
 
 ## Custom wire mapping
 
@@ -66,7 +66,7 @@ The session model selector (next to the model) now offers **Auto** after the wir
 | Model-selector pick | Behavior |
 |---|---|
 | **Auto** | plugin schedules via tool history + the upgrade/downgrade toggles, resolves to `low` / `high` / `max` before submission |
-| `off` / `on` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max` | **manual choice wins** — plugin does not intervene (`on` is clamped to the model's default strength) |
+| `off` / `on` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max` | **manual choice wins** — plugin does not intervene (`on` stays `on` on toggle-only models, never lifted to an effort; effort-capable models strip it) |
 | unset | the plugin's default level applies (below) |
 
 ## Auto scheduler

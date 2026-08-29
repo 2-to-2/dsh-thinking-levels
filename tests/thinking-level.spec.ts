@@ -166,13 +166,10 @@ describe('resolveEffortInjection — model capability guard', () => {
   })
 
   it('clamps a scheduled low to the model’s highest thinking level', () => {
-    // Qwen3.6 advertises off/high only (the selector is an On/Off toggle):
-    // the fresh-prompt auto schedule resolves low, which the adapter would
-    // reject — the plugin lifts it to high instead of erroring.
-    const toggle = { efforts: ['off', 'high'], toggleOnly: true }
-    expect(resolveEffortInjection(base({ ...toggle, seedEffort: undefined }))).toEqual({ inject: true, level: 'high' })
-    const heavy = [{ name: 'mcp__docs', argsSize: 4000 }]
-    expect(resolveEffortInjection(base({ ...toggle, seedEffort: 'auto', recentCalls: heavy }))).toEqual({ inject: true, level: 'high' })
+    // A model advertising no low (e.g. off/minimal/max) lifts a scheduled low
+    // to its highest thinking level instead of erroring.
+    const narrow = { efforts: ['off', 'minimal', 'max'], toggleOnly: false }
+    expect(resolveEffortInjection(base({ ...narrow, seedEffort: undefined }))).toEqual({ inject: true, level: 'max' })
   })
 
   it('strips an unsupported manual pick instead of clamping it', () => {
@@ -183,19 +180,32 @@ describe('resolveEffortInjection — model capability guard', () => {
   })
 
   it('strips Off on a toggle-only model (pi-ai omits the effort to disable thinking)', () => {
-    const toggle = { efforts: ['off', 'high'], toggleOnly: true }
+    const toggle = { efforts: ['off', 'on'], toggleOnly: true }
     expect(resolveEffortInjection(base({ ...toggle, seedEffort: 'off' }))).toEqual({ inject: false })
-    expect(resolveEffortInjection(base({ ...toggle, seedEffort: 'high' }))).toEqual({ inject: true, level: 'high' })
+    expect(resolveEffortInjection(base({ ...toggle, seedEffort: 'on' }))).toEqual({ inject: true, level: 'on' })
   })
 
-  it('clamps the On toggle to the model’s default strength (high), never an exact wire level', () => {
-    // `on` is the enable-thinking toggle: it must never be sent verbatim — it
-    // lifts to the advertised high, or the highest thinking level otherwise.
-    const toggle = { efforts: ['off', 'high'], toggleOnly: true }
-    expect(resolveEffortInjection(base({ ...toggle, seedEffort: 'on' }))).toEqual({ inject: true, level: 'high' })
-    expect(resolveEffortInjection(base({ efforts: ['off', 'minimal', 'max'], seedEffort: 'on' })))
-      .toEqual({ inject: true, level: 'max' })
-    expect(resolveEffortInjection(base({ efforts: ['off'], seedEffort: 'on' }))).toEqual({ inject: false })
+  it('passes On through on a toggle-only model, and never lifts it to an effort level', () => {
+    // `on` is the enable-thinking toggle: it must never be sent as an effort
+    // wire value — on a toggle-only model it stays `on` (enable_thinking true
+    // via the thinking format, no reasoning_effort), and on an effort-capable
+    // model it is stripped (never clamped to high).
+    const toggle = { efforts: ['off', 'on'], toggleOnly: true }
+    expect(resolveEffortInjection(base({ ...toggle, seedEffort: 'on' }))).toEqual({ inject: true, level: 'on' })
+    expect(resolveEffortInjection(base({ ...toggle, seedEffort: 'off' }))).toEqual({ inject: false })
+    // An effort-capable model advertises no `on`: a stray manual pick is
+    // stripped, not lifted to high.
+    expect(resolveEffortInjection(base({ efforts: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'], seedEffort: 'on' })))
+      .toEqual({ inject: false })
+  })
+
+  it('clamps a scheduled low on a toggle-only model to On (the only thinking level)', () => {
+    // Toggle-only models advertise off/on only: a scheduled low lifts to `on`,
+    // which enables thinking without sending a think effort.
+    const toggle = { efforts: ['off', 'on'], toggleOnly: true }
+    expect(resolveEffortInjection(base({ ...toggle, seedEffort: undefined }))).toEqual({ inject: true, level: 'on' })
+    const heavy = [{ name: 'mcp__docs', argsSize: 4000 }]
+    expect(resolveEffortInjection(base({ ...toggle, seedEffort: 'auto', recentCalls: heavy }))).toEqual({ inject: true, level: 'on' })
   })
 
   it('passes the extended wire levels through when the model advertises them', () => {

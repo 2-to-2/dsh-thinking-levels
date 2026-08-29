@@ -23,7 +23,7 @@
 | 档位 | 含义 | 位置 |
 |---|---|---|
 | `off` | 关闭思考（仅手动选择，自动调度永不选用） | 模型选择器 / 默认档位 |
-| `on` | 开启思考，使用模型默认强度（如 `high`）；toggle 型模型的 On/Off 开关 | 模型选择器 / 默认档位 |
+| `on` | 开启思考（仅 toggle 型模型）：只发 `enable_thinking`，不发 think effort | 模型选择器 / 默认档位 |
 | `minimal` | 最低档（极轻任务） | 模型选择器 / 默认档位 |
 | `low` | 手动低档，对应简单对话任务（廉价轮次保持廉价） | 模型选择器 / 默认档位 |
 | `medium` | 中档 | 模型选择器 / 默认档位 |
@@ -32,7 +32,7 @@
 | `max` | 重任务 | 模型选择器 / 默认档位 |
 | `auto` | **mask**：按最近的工具调用历史逐轮调度，提交 API 前解析为具体档位 | 模型选择器（由插件注入元数据）/ 默认档位 |
 
-线缆档位事实（对照官方 DeepSeek 文档与 dsh `llm-deepseek` 适配器核实）：deepseek-v4-flash / v4-pro 上 `low` 1:1 生效，`medium` / `xhigh` 折叠到 `high`。适配器只接受 `off | low | high | max`，其他值抛 `UNSUPPORTED_REASONING_EFFORT`——`auto` 是插件的 mask 层，永不直接发送给 API，注入前必然解析为具体线缆档位。
+线缆档位事实（对照官方 DeepSeek 文档与 dsh `llm-deepseek` 适配器核实）：deepseek-v4-flash / v4-pro 上 `low` 1:1 生效，`medium` / `xhigh` 折叠到 `high`。适配器只接受 `off | low | high | max`，其他值抛 `UNSUPPORTED_REASONING_EFFORT`——`auto` 是插件的 mask 层，永不直接发送给 API，注入前必然解析为具体线缆档位。`on` **不是** effort 档位：它只由 toggle 型模型（Qwen3.6 类）广告，且只把 `enable_thinking` 置 true——不发送 `reasoning_effort`；effort 能力模型永不广告 `on`，所以手动选 `on` 会被剥离。
 
 ## 自定义传输字段映射
 
@@ -61,7 +61,7 @@ auto 调度对支持的模型仍可选出 `low`——由上面的能力守卫负
 | 模型选择器选择 | 行为 |
 |---|---|
 | **Auto** | 插件按工具调用历史 + 升降档开关调度，解析成 `low` / `high` / `max` 后提交 API |
-| `off` / `on` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max` | **尊重手动选择**，插件不介入（`on` 会被钳制到模型默认强度） |
+| `off` / `on` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max` | **尊重手动选择**，插件不介入（toggle 型模型上 `on` 保持 `on`，绝不升为 effort；effort 能力模型剥离它） |
 | 未选择 | 使用插件的默认档位（见下） |
 
 ## 自动调度

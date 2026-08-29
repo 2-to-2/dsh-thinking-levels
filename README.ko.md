@@ -23,7 +23,7 @@
 | 수준 | 의미 | 위치 |
 |---|---|---|
 | `off` | 사고 비활성화(수동 전용. 자동 스케줄링에서 선택되지 않음) | 모델 선택기 / 기본 수준 |
-| `on` | 모델 기본 강도(예: `high`)로 사고 활성화. 토글 전용 모델의 On/Off 스위치 | 모델 선택기 / 기본 수준 |
+| `on` | 사고 활성화(토글 전용 모델용): `enable_thinking`만 전송하고 think effort는 전송하지 않음 | 모델 선택기 / 기본 수준 |
 | `minimal` | 최소(매우 가벼운 작업) | 모델 선택기 / 기본 수준 |
 | `low` | 단순 채팅 작업용 수동 낮음(가벼운 라운드는 가볍게 유지) | 모델 선택기 / 기본 수준 |
 | `medium` | 중간 | 모델 선택기 / 기본 수준 |
@@ -32,7 +32,7 @@
 | `max` | 무거운 작업 | 모델 선택기 / 기본 수준 |
 | `auto` | **마스크**: 최근 도구 호출 기록에서 스텝별로 스케줄링하고 제출 전에 구체적 수준으로 해석 | 모델 선택기(플러그인 주입) / 기본 수준 |
 
-와이어 수준 사실(공식 DeepSeek 문서와 dsh의 `llm-deepseek` 어댑터로 확인): deepseek-v4-flash / v4-pro에서 `low`는 1:1로 유효하며 `medium` / `xhigh`는 `high`로 접힙니다. 어댑터는 `off | low | high | max`만 받고 그 외에는 `UNSUPPORTED_REASONING_EFFORT`로 거부합니다——`auto`는 플러그인의 마스크 계층으로 API에 절대 전송되지 않으며 주입 전에 항상 구체적 와이어 수준으로 해석됩니다.
+와이어 수준 사실(공식 DeepSeek 문서와 dsh의 `llm-deepseek` 어댑터로 확인): deepseek-v4-flash / v4-pro에서 `low`는 1:1로 유효하며 `medium` / `xhigh`는 `high`로 접힙니다. 어댑터는 `off | low | high | max`만 받고 그 외에는 `UNSUPPORTED_REASONING_EFFORT`로 거부합니다——`auto`는 플러그인의 마스크 계층으로 API에 절대 전송되지 않으며 주입 전에 항상 구체적 와이어 수준으로 해석됩니다. `on`은 **effort 수준이 아닙니다**: 토글 전용 모델(Qwen3.6 방식)만 광고하며 `enable_thinking`만 true로 만듭니다——`reasoning_effort`는 전송되지 않습니다. effort 지원 모델은 `on`을 광고하지 않으므로 수동으로 `on`을 골라도 제거됩니다.
 
 ## 사용자 지정 전송 값 매핑
 
@@ -59,7 +59,7 @@ auto 스케줄러는 지원 모델에서 `low`를 선택할 수 있습니다—�
 | 선택기 선택 | 동작 |
 |---|---|
 | **Auto** | 도구 기록 + 승격/강등 토글로 스케줄링하고 제출 전에 `low` / `high` / `max`로 해석 |
-| `off` / `on` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max` | **수동 선택 우선**——플러그인 개입 없음(`on`은 모델 기본 강도로 클램프) |
+| `off` / `on` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max` | **수동 선택 우선**——플러그인 개입 없음(토글 전용 모델에서는 `on`이 `on`으로 유지되며 effort로 끌어올려지지 않고, effort 지원 모델에서는 제거됨) |
 | 미선택 | 플러그인 기본 수준 적용(아래) |
 
 ## 자동 스케줄러
