@@ -244,14 +244,6 @@ function effortTableOf(draft: Record<string, string | null>): Record<string, unk
   return table
 }
 
-/** The `compat.thinkingFormat` a row declares, or `undefined` when it declares none. */
-function formatOf(model: Record<string, unknown>): string | undefined {
-  const compat = model['compat']
-  if (typeof compat !== 'object' || compat === null || Array.isArray(compat)) return undefined
-  const format = (compat as Record<string, unknown>)['thinkingFormat']
-  return typeof format === 'string' ? format : undefined
-}
-
 /** Whether a row declares `compat.supportsReasoningEffort` (the wire sends reasoning_effort). */
 function supportsEffortOf(model: Record<string, unknown>): boolean {
   const compat = model['compat']
@@ -299,13 +291,31 @@ interface CapabilityEntry {
   index: number
   model: Record<string, unknown>
   modelId: string
+  /** The provider-level `compat`, applied to models that declare none (display parity). */
+  providerCompat?: unknown
+  /** The provider-level `defaultInput`, applied to models that declare none (display parity). */
+  providerInput?: unknown[]
+}
+
+/** The effective `compat` of an entry: its own `compat` merged over the provider-level `compat`. */
+function compatOf(entry: CapabilityEntry): Record<string, unknown> {
+  const base = typeof entry.providerCompat === 'object' && entry.providerCompat !== null
+    ? entry.providerCompat as Record<string, unknown>
+    : {}
+  const own = entry.model['compat']
+  return typeof own === 'object' && own !== null && !Array.isArray(own)
+    ? { ...base, ...(own as Record<string, unknown>) }
+    : base
 }
 
 /** Flatten the user-layer providers into capability entries (models arrays only). */
 function entriesOf(providers: Record<string, unknown>): CapabilityEntry[] {
   return Object.entries(providers).flatMap(([providerId, profile]) => {
-    const models = (profile as Record<string, unknown>)['models']
+    const raw = profile as Record<string, unknown>
+    const models = raw['models']
     if (!Array.isArray(models)) return []
+    const providerCompat = raw['compat']
+    const providerInput = Array.isArray(raw['defaultInput']) ? raw['defaultInput'] as unknown[] : undefined
     return models.map((model, index) => ({
       providerId,
       index,
@@ -315,13 +325,20 @@ function entriesOf(providers: Record<string, unknown>): CapabilityEntry[] {
       modelId: typeof model === 'object' && model !== null && typeof (model as Record<string, unknown>)['id'] === 'string'
         ? (model as Record<string, unknown>)['id'] as string
         : `#${index + 1}`,
+      providerCompat,
+      providerInput,
     }))
   })
 }
 
 /** Human-readable capability summary of one entry (input modalities + declared context window). */
 function summaryOf(entry: CapabilityEntry): { text: boolean; image: boolean; context: string | null } {
-  const input = entry.model['input']
+  // Modalities fall back to the provider-level `defaultInput` so a vision
+  // gateway declared once on the route shows every model as vision, matching
+  // llm-pi-ai's resolution and the adapter's runtime gate.
+  const input = Array.isArray(entry.model['input'])
+    ? entry.model['input'] as unknown[]
+    : entry.providerInput
   const text = !Array.isArray(input) || input.length === 0 || input.includes('text')
   const image = Array.isArray(input) && input.includes('image')
   const contextWindow = entry.model['contextWindow']
@@ -635,9 +652,14 @@ function ModelCapabilities(props: {
                   const modelOpen = expandedModels[key] === true
                   const efforts = effortsOf(entry.model)
                   const thinking = typeof efforts === 'object'
-                  const supportsEffort = supportsEffortOf(entry.model)
+                  // Display falls back to the provider-level `compat` so a
+                  // route-declared thinking/effort posture shows on every model.
+                  const compat = compatOf(entry)
+                  const supportsEffort = compat['supportsReasoningEffort'] === true
                   const meta = summaryOf(entry)
-                  const format = formatOf(entry.model)
+                  const format = typeof compat['thinkingFormat'] === 'string'
+                    ? compat['thinkingFormat']
+                    : undefined
                   return (
                     <div key={key}>
                       <div style={modelRowStyle}>
