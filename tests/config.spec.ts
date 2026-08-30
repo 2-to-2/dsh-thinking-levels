@@ -38,4 +38,21 @@ describe('plugin config schema', () => {
   it('exposes a kebab-case settings namespace', () => {
     expect(THINKING_LEVELS_SETTINGS_NAMESPACE).toBe('thinking-levels')
   })
+
+  it('accepts a declared contextWindow within bounds', () => {
+    const parsed = Config(asConfig({ models: { 'llm-pi-ai/custom-gateway': { contextWindow: 1_000_000 } } }))
+    expect(parsed.models['llm-pi-ai/custom-gateway']).toEqual({ contextWindow: 1_000_000 })
+  })
+
+  it('rejects out-of-band contextWindow values', () => {
+    expect(() => Config(asConfig({ models: { 'p/m': { contextWindow: 2_000_000 } } }))).toThrow()
+    expect(() => Config(asConfig({ models: { 'p/m': { contextWindow: 0 } } }))).toThrow()
+    expect(() => Config(asConfig({ models: { 'p/m': { contextWindow: '128k' as unknown as number } } }))).toThrow()
+  })
+
+  it('keeps contextWindow absent when not declared', () => {
+    expect(Config(asConfig({}))).toEqual(DEFAULT_CONFIG)
+    const parsed = Config(asConfig({ models: { 'p/m': { vision: true } } }))
+    expect(parsed.models['p/m']).toEqual({ vision: true })
+  })
 })

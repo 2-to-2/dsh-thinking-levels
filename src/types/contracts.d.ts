@@ -27,6 +27,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   /** Slot map entries consumed by this plugin (subset of the harness table). */
   export interface SlotMap {
     'settings.plugin.item': { kind: 'keyed'; scope: 'root'; owner: object }
+    /**
+     * The composer tool-row right seat (before the send button, next to the
+     * model/effort select): the plugin renders its context-window quick
+     * control here. Session-scoped list, one-row height budget.
+     */
+    'conversation.input.right': { kind: 'list'; scope: 'session'; owner: object }
   }
 
   /** Locale namespaces merged by client plugins. */

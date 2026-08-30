@@ -6,6 +6,19 @@ All notable changes to `dsh-thinking-levels` are documented here.
 - [日本語 changelog](./CHANGELOG.ja.md)
 - [한국어 changelog](./CHANGELOG.ko.md)
 
+## [0.7.0] — 2026-08-30
+
+### Added
+
+- **Multi-level context-window presets** in the per-model capability editor: `64K / 128K / 256K / 400K / 512K / 1M` preset buttons plus a custom integer input and clear button, written to the `llm-pi-ai` model `contextWindow` and consumed live by the harness (compaction / context-overflow detection / context-pressure projections) on the next request — no restart needed.
+- New pure module `src/context-window.ts` (range constants `2000`–`1_000_000`, preset list, `formatContextWindow`, `validateContextWindow`) shared by the config schema, the settings card and the tests.
+- Config surface: `models[].contextWindow` override accepted with integer `2000`–`1000000` validation (fail-loud on out-of-band values).
+- New `zh` / `en` / `ja` / `ko` copy for the context-window control.
+
+### Changed
+
+- The context badge now reuses the shared `formatContextWindow` so written presets display exactly (e.g. `256000` → `256K`, `1000000` → `1M`).
+
 ## [0.6.0] — 2026-02-?
 
 ### Added

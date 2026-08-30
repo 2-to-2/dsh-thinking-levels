@@ -27,6 +27,7 @@ import type { CSSProperties, JSX } from 'react'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { EffortId } from '../thinking-level.ts'
+import { CONTEXT_WINDOW_PRESETS, formatContextWindow, validateContextWindow } from '../context-window.ts'
 import type { ThinkingLevelsConfig } from '../index.ts'
 
 /** One injected face: the plugin's own scope plus the llm-pi-ai namespace scope. */
@@ -342,12 +343,9 @@ function summaryOf(entry: CapabilityEntry): { text: boolean; image: boolean; con
   const text = !Array.isArray(input) || input.length === 0 || input.includes('text')
   const image = Array.isArray(input) && input.includes('image')
   const contextWindow = entry.model['contextWindow']
-  let context: string | null = null
-  if (typeof contextWindow === 'number' && Number.isFinite(contextWindow) && contextWindow > 0) {
-    context = contextWindow >= 1024
-      ? `${Math.round(contextWindow / 1024)}K`
-      : String(contextWindow)
-  }
+  const context = typeof contextWindow === 'number' && Number.isFinite(contextWindow) && contextWindow > 0
+    ? formatContextWindow(contextWindow)
+    : null
   return { text, image, context }
 }
 
@@ -405,6 +403,8 @@ function ModelCapabilities(props: {
   const [expandedModels, setExpandedModels] = useState<Record<string, boolean>>({})
   const [drafts, setDrafts] = useState<Record<string, Record<string, string | null>>>({})
   const [busy, setBusy] = useState(false)
+  const [contextRaw, setContextRaw] = useState<Record<string, string>>({})
+  const [contextError, setContextError] = useState<Record<string, string>>({})
 
   const entryKey = (entry: CapabilityEntry): string => `${entry.providerId}\u0000${entry.index}`
 
@@ -553,6 +553,68 @@ function ModelCapabilities(props: {
     })
   }
 
+  /** Seed a model's context-window input when it is first expanded. */
+  const seedContext = (entry: CapabilityEntry): void => {
+    const key = entryKey(entry)
+    setContextRaw(current => {
+      if (current[key] !== undefined) return current
+      const value = entry.model['contextWindow']
+      return {
+        ...current,
+        [key]: typeof value === 'number' && Number.isFinite(value) ? String(value) : '',
+      }
+    })
+  }
+
+  /** Write (or delete) a model's `contextWindow` in the llm-pi-ai entry. */
+  const commitContextWindow = (entry: CapabilityEntry, value: number | undefined): void => {
+    const key = entryKey(entry)
+    patchModel(entry.providerId, entry.index, (row) => {
+      if (value === undefined) delete row['contextWindow']
+      else row['contextWindow'] = value
+    })
+    setContextError(current => {
+      const next = { ...current }
+      delete next[key]
+      return next
+    })
+  }
+
+  /** Apply one preset immediately. */
+  const applyContextPreset = (entry: CapabilityEntry, value: number): void => {
+    const key = entryKey(entry)
+    setContextRaw(current => ({ ...current, [key]: String(value) }))
+    commitContextWindow(entry, value)
+  }
+
+  /** Validate and commit the custom input (blur / Enter); empty clears it. */
+  const applyContextInput = (entry: CapabilityEntry): void => {
+    const key = entryKey(entry)
+    const raw = (contextRaw[key] ?? '').trim()
+    if (raw === '') {
+      commitContextWindow(entry, undefined)
+      return
+    }
+    const validation = validateContextWindow(raw)
+    if (!validation.ok) {
+      setContextError(current => ({
+        ...current,
+        [key]: t(validation.reason === 'integer'
+          ? 'card.capabilities.contextInteger'
+          : 'card.capabilities.contextRange'),
+      }))
+      return
+    }
+    commitContextWindow(entry, validation.value)
+  }
+
+  /** Clear the model's context-window declaration (delete the field). */
+  const clearContext = (entry: CapabilityEntry): void => {
+    const key = entryKey(entry)
+    setContextRaw(current => ({ ...current, [key]: '' }))
+    commitContextWindow(entry, undefined)
+  }
+
   if (unavailable) {
     return (
       <div style={sectionStyle}>
@@ -670,7 +732,7 @@ function ModelCapabilities(props: {
                           onClick={() => {
                             const next = expandedModels[key] !== true
                             setExpandedModels(current => ({ ...current, [key]: next }))
-                            if (next) ensureDraft(entry)
+                            if (next) { ensureDraft(entry); seedContext(entry) }
                           }}
                           style={{
                             ...iconButtonStyle,
@@ -830,6 +892,64 @@ function ModelCapabilities(props: {
                                     <option key={formatOption} value={formatOption}>{formatOption}</option>
                                   ))}
                                 </select>
+                              </label>
+                            </div>
+                            {/* Context-window limit: presets + custom integer (written to llm-pi-ai, live on next request) */}
+                            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '10px' }}>
+                              <label style={fieldStyle}>
+                                <span style={fieldLabelStyle}>{t('card.capabilities.contextWindow')}</span>
+                                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                  {CONTEXT_WINDOW_PRESETS.map(preset => (
+                                    <button
+                                      key={preset.value}
+                                      type="button"
+                                      disabled={readonly || busy}
+                                      onClick={() => applyContextPreset(entry, preset.value)}
+                                      style={{
+                                        ...controlStyle,
+                                        padding: '2px 8px',
+                                        cursor: readonly || busy ? 'default' : 'pointer',
+                                        opacity: readonly || busy ? 0.5 : 1,
+                                      }}
+                                    >
+                                      {preset.label}
+                                    </button>
+                                  ))}
+                                  <input
+                                    type="text"
+                                    value={contextRaw[key] ?? ''}
+                                    disabled={readonly || busy}
+                                    placeholder={t('card.capabilities.contextCustomPlaceholder')}
+                                    style={{ ...controlStyle, width: '120px' }}
+                                    onChange={(event) => {
+                                      const next = event.currentTarget.value
+                                      setContextRaw(current => ({ ...current, [key]: next }))
+                                    }}
+                                    onBlur={() => applyContextInput(entry)}
+                                    onKeyDown={(event) => {
+                                      if (event.key === 'Enter') event.currentTarget.blur()
+                                    }}
+                                  />
+                                  <button
+                                    type="button"
+                                    disabled={readonly || busy}
+                                    onClick={() => clearContext(entry)}
+                                    style={{
+                                      ...controlStyle,
+                                      cursor: readonly || busy ? 'default' : 'pointer',
+                                      opacity: readonly || busy ? 0.5 : 1,
+                                    }}
+                                  >
+                                    {t('card.capabilities.contextClear')}
+                                  </button>
+                                </div>
+                                {contextError[key] !== undefined
+                                  ? (
+                                    <span style={{ margin: 0, fontSize: '12px', lineHeight: '18px', color: 'var(--dsw-alias-danger, #e5484d)' }}>
+                                      {contextError[key]}
+                                    </span>
+                                  )
+                                  : null}
                               </label>
                             </div>
                           </div>

@@ -18,6 +18,25 @@
 
 In a multi-step tool chain, the model re-thinks before **every** tool call — and that thinking dominates the wall-clock time (a 50-step agent task can spend minutes reasoning between tools). `dsh-thinking-levels` plugs into the `agent/request` waterfall that dsh re-resolves for every step (registered with `prepend` so the session model-selection assembly cannot overwrite its decision) and injects a thinking level into the next model request.
 
+## Preview
+
+Screenshots of the live UI (dsh web):
+
+<figure>
+  <img width="460" alt="Model selector Auto dropdown injected by the plugin: levels Off / Low / High / Max / Auto, High currently selected, Auto highlighted — Auto is a mask, the plugin schedules low/high/max per step from the tool history." src="assets/官方模型的自动级别调整.png" />
+  <figcaption>Native model selector gains <strong>Auto</strong> — pick it and the plugin schedules low/high/max per step instead of a fixed wire level.</figcaption>
+</figure>
+
+<figure>
+  <img style="max-width:100%" alt="思考档位 settings card: default level (auto scheduling), enable / allow-downgrade / allow-upgrade toggles, llm-pi-ai custom-provider model-capability table with per-model short-circuit takeover, and apply-to-all presets (Off/High/Max official DeepSeek style, Off/Low/Medium/High generic)." src="assets/自动思考级别配置.png" />
+  <figcaption>Thinking-level settings card: the auto scheduler plus its boundaries, and llm-pi-ai model-capability mapping (gear → gateway wire values).</figcaption>
+</figure>
+
+<figure>
+  <img style="max-width:100%" alt="Per-model capability editor for a custom openai-completions model (local-35b / Qwen3.6-35B-A3B): short-circuit takeover checked; thinking model and vision enabled, support think effort off; thinking format qwen; context-window limit presets 64K/128K/256K/400K/512K/1M with a custom input." src="assets/自定义模型的思考接管-短路-上下文窗口限制.png" />
+  <figcaption>Per-model capability card — pairs with <a href="https://github.com/drscrewdriver/dsh-llm-openai-completions">dsh-llm-openai-completions</a>: this card detects &amp; writes capabilities, that adapter takes over the wire (compat.thinkingFormat).</figcaption>
+</figure>
+
 ## Levels
 
 | Level | Meaning | Where |
@@ -40,6 +59,14 @@ For hand-declared `llm-pi-ai` models the settings card lets you map each level t
 
 - Official preset: `Off / High / Max` (official DeepSeek style)
 - Generic preset: `Off / Low / Medium / High`
+
+## Context-window presets
+
+The settings card's per-model editor now includes a **context window limit** control: preset buttons `64K / 128K / 256K / 400K / 512K / 1M`, a custom integer input, and a clear button. The value is written to the `llm-pi-ai` model entry `contextWindow` (integer `2000`–`1000000`).
+
+Upstream, the harness consumes it through `resolveModelInfo(...).context.contextWindow` for compaction thresholds, context-overflow detection and context-pressure projections. Because `llm-pi-ai` re-reads the live config on every resolve and the openai-completions takeover does not block model discovery, a settings edit takes effect on the next request without a restart.
+
+The plugin config also accepts `models['provider/model'].contextWindow` as a validated (integer `2000`–`1000000`) declaration at the composition/config surface.
 
 ## Model-aware guard (v0.5.0)
 

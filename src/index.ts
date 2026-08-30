@@ -31,6 +31,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { assertEffortId, reasoningEffortSupported, resolveEffortInjection, type EffortId } from './thinking-level.ts'
 import { recentToolCalls } from './session-events.ts'
+import { CONTEXT_WINDOW_MAX, CONTEXT_WINDOW_MIN } from './context-window.ts'
 import {
   identifyTakeoverProviders,
   nextTakeoverSection,
@@ -54,6 +55,12 @@ export interface ModelCapabilityOverride {
    * adapter-advertised list.
    */
   efforts?: false | Exclude<EffortId, 'auto'>[]
+  /**
+   * Declared context-window limit in tokens (2000–1_000_000). Declaration-only:
+   * the runtime harness reads it from the llm-pi-ai model entry, so this
+   * override is a validated config-surface declaration.
+   */
+  contextWindow?: number
 }
 
 /** Plugin settings. */
@@ -87,6 +94,7 @@ export const Config: z<ThinkingLevelsConfig> = z.object({
     vision: z.boolean(),
     thinking: z.boolean(),
     efforts: z.union([z.const(false), z.array(effortId)]),
+    contextWindow: z.number().step(1).min(CONTEXT_WINDOW_MIN).max(CONTEXT_WINDOW_MAX),
   })).default({}),
 })
 
