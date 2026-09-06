@@ -20,3 +20,10 @@ providers:
         # 对"不明确关闭就思考"的端点(如 OpenAI 兼容网关后的 DeepSeek V4):
         # compat:
         #   thinkingFormat: deepseek   # off 发送 thinking:{type:disabled},其余档位附带 thinking:{type:enabled}
+        # Qwen3.6 toggle 型端点(rc.8 起官方支持,替代 dsh-llm-openai-completions 的接管):
+        # compat:
+        #   thinkingFormat: qwen              # 发送 enable_thinking: boolean,不发 reasoning_effort
+        # 或 chat_template_kwargs 形式:
+        # compat:
+        #   thinkingFormat: qwen-chat-template
+        #   chatTemplateKwargs: { enable_thinking: "true" }   # kwargs 仅在该 thinkingFormat 下被读取

@@ -4,7 +4,7 @@
 // 输出: check/requests.jsonl(逐请求体)+ 控制台实时判定。Ctrl+C 结束并打印汇总。
 
 import http from 'node:http';
-import { pipeline } from 'node:stream';
+import { pipeline, Transform } from 'node:stream';
 import { createWriteStream } from 'node:fs';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
@@ -25,7 +25,9 @@ const port = Number(opt('port', 8787));
 mkdirSync(here, { recursive: true });
 const out = createWriteStream(path.join(here, 'requests.jsonl'), { flags: 'a' });
 
-const stats = { total: 0, developerHits: 0, badRequests: 0, efforts: new Map() };
+const stats = { total: 0, developerHits: 0, badRequests: 0, thinkLeaks: 0, efforts: new Map() };
+
+const countOccurrences = (hay, needle) => hay.split(needle).length - 1;
 
 function analyze(body) {
   let parsed;
@@ -76,7 +78,21 @@ const server = http.createServer((req, res) => {
       (upRes) => {
         if (upRes.statusCode >= 400) stats.badRequests++;
         res.writeHead(upRes.statusCode, upRes.headers);
-        pipeline(upRes, res, () => {});
+        // 缺口候选 1 证据:网关把 thinking 内联进响应(vLLM <think> 形状)
+        // 流式分块可能截断标签,计数为下界
+        let thinkHits = 0;
+        const thinkDetector = new Transform({
+          transform(chunk, _enc, cb) {
+            thinkHits += countOccurrences(chunk.toString('utf8'), '<think>');
+            cb(null, chunk);
+          },
+        });
+        pipeline(upRes, thinkDetector, res, () => {
+          if (thinkHits > 0) {
+            stats.thinkLeaks++;
+            console.log(`[#${stats.total}] ⚠ 响应内联 <think> x${thinkHits}(thinking 文本混入正文,缺口候选 1)`);
+          }
+        });
       },
     );
     upReq.on('error', (e) => {
@@ -98,6 +114,7 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
     console.log(`\n=== 汇总 ===`);
     console.log(`请求总数: ${stats.total},网关 4xx/5xx: ${stats.badRequests}`);
     console.log(`developer 角色出现请求数: ${stats.developerHits}  ${stats.developerHits === 0 ? '✓ 通过' : '✗ 未通过'}`);
+    console.log(`响应内联 <think> 的请求数: ${stats.thinkLeaks}  ${stats.thinkLeaks === 0 ? '✓ 无拆分缺口' : '⚠ 存在拆分缺口(候选 1)'}`);
     console.log(`reasoning_effort 分布:`, Object.fromEntries(stats.efforts));
     out.end();
     process.exit(0);

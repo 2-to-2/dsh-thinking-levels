@@ -16,6 +16,22 @@ deepseek-ai/deepseek-harness#5008 官方回复、#3789、#4937)能否完整替�
 > 注意 #3789 的默认值反转提案截至 v0.1.3-alpha.1 未落地,`false` 必须显式写出;
 > compat 键冒号留空会被直接拒绝(防止抹掉 catalog 已知信息)。
 
+## 职责对照:两条路线互斥互为替代(developer-role 维度)
+
+`dsh-llm-openai-completions` 五项职责 vs 官方声明式配置:
+
+| # | 插件职责 | 官方覆盖 | 结论 |
+| --- | --- | --- | --- |
+| 1 | system 角色固定 `system`(developer 400 修复) | `compat.supportsDeveloperRole: false` | ✅ 覆盖——互斥替代关系的主判定项 |
+| 2 | `thinkingFormat: qwen` / `qwen-chat-template` 接管 | 官方 `THINKING_FORMAT_GATE` rc.8 起全量含 qwen 系;kwargs 走 `compat.chatTemplateKwargs` | ✅ 覆盖 |
+| 3 | effort 透传 + 词汇映射(high→ultra) | 模型 `reasoningEfforts` 表 | ✅ 覆盖 |
+| 4 | Qwen3 内联 `<think>` 拆分 reasoning block(vLLM 无 reasoning_content 字段) | 未知;catalog 有 `requiresThinkingAsText` 等开关待验证 | ⚠️ 缺口候选 1,代理实测 |
+| 5 | 视觉图片 data URI 序列化(多图保序) | pi-ai 原生 image_url + `input:[text,image]` | ⚠️ 缺口候选 2,实测 |
+
+判定逻辑:flag 生效 + 移除短路插件后,请求走 pi-ai 原生链路,代价仅是多声明
+一个显式 flag(默认值反转未落地,不能省)。#1-#3 已由源码核实覆盖;**#4/#5
+实测通过才可整体卸载插件**,否则插件仅保留对应短板职责。
+
 ## 文件
 
 | 文件 | 用途 |
