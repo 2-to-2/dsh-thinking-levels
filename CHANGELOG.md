@@ -6,6 +6,30 @@ All notable changes to `dsh-thinking-levels` are documented here.
 - [日本語 changelog](./CHANGELOG.ja.md)
 - [한국어 changelog](./CHANGELOG.ko.md)
 
+## [0.7.0-beta.1] — 2026-09-06
+
+> **Beta: the short-circuit route is retired.** This release no longer depends on `dsh-llm-openai-completions` (or any transport-takeover side path). All gateway fixes ride the OFFICIAL `llm-pi-ai` compat surface, available since **dsh v0.1.0-rc.8** (commit `884f7b9c41`).
+
+### Removed
+
+- **The short-circuit takeover bridge**: the plugin no longer maintains the `llm-openai-completions` takeover list (`nextTakeoverSection` / `TakeoverSection` are gone). The adapter plugin `dsh-llm-openai-completions` is NOT needed alongside this release and can stay uninstalled.
+
+### Changed
+
+- **Auto-compat bridge rewritten onto the official compat surface** (`withOfficialCompatFixes`): for every custom openai-completions gateway route that declares thinking, the sync now writes
+  - route-level `compat.supportsDeveloperRole: false` (system prompt sent as `system` — fixes the vLLM/SGLang `Unexpected message role` 400), and
+  - model-level `compat.thinkingFormat: 'qwen-chat-template'` on toggle-style thinking rows (no row-level effort support) so pi-ai sends `chat_template_kwargs.enable_thinking` — bare vLLM servers ignore the top-level `enable_thinking` of the plain `qwen` format.
+- Storage pattern follows dsh-thinking-effort's host side: read → pure transform (identity when nothing to change) → whole-section `settings.update('llm-pi-ai', …)`, so dsh's `llm-pi-ai` schema validator gates the write where it is WRITTEN; a dsh predating rc.8 rejects the unknown field and the sync logs and keeps the previous section. Explicit values on any layer are respected and never clobbered.
+- **Capability card de-short-circuited**: the "short-circuit takeover" switch is replaced by a per-provider **"gateway rejects the developer role"** switch (writes/clears the route-level flag; unchecking restores inheritance). The takeover-list gating is gone — every llm-pi-ai provider's models are directly editable, in progressive layers: ① thinking + vision → ② effort support (thinking models only) → ③ effort wire editor → ④ thinkingFormat → ⑤ context window. Toggling thinking on a toggle-style model auto-fills `thinkingFormat: 'qwen-chat-template'` (only when absent); enabling effort removes it again.
+- `declaresThinking` now also scans `modelOverrides` (previously only `models[]`), so modelOverrides-only routes are identified and fixed too.
+- The adapter-posture read gate (`takeoverOf` / `piAiPosture`) is kept but inert: with the adapter absent it yields native pi-ai semantics.
+
+### Notes
+
+- Requires dsh ≥ **v0.1.0-rc.8** for the official compat surface. On older dsh the schema refuses the compat fields (fail-loud, no silent misconfiguration).
+- Response-side inline `<think>` splitting remains a gateway concern: bare vLLM needs `--reasoning-parser qwen3`; pi-ai (≤ 0.85.1) parses only `reasoning_content` / `reasoning` / `reasoning_text`. `qwen-chat-template` does not carry `reasoning_effort` (the format branches are mutually exclusive) — effort levels drive `enable_thinking` on/off only. True parallel (chat_template_kwargs + reasoning_effort) needs an upstream pi-ai change.
+- Verification materials live on the `check` branch (`check/CHECK.md`, `check/record-proxy.mjs`, `check/settings-route.example.yaml`); they are not part of the npm package.
+
 ## [0.7.0] — 2026-08-30
 
 ### Added

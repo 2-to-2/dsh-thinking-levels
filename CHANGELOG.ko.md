@@ -6,6 +6,21 @@
 - [日本語 changelog](./CHANGELOG.ja.md)
 - [한국어 changelog](./CHANGELOG.ko.md)
 
+## [0.7.0-beta.1] — 2026-09-06
+
+> **베타: 단락(short-circuit) 경로 폐지.** 이 릴리스는 `dsh-llm-openai-completions`(및 모든 transport 인계 사이드 경로)에 의존하지 않습니다. 모든 게이트웨이 수정은 공식 `llm-pi-ai` compat 면(**dsh v0.1.0-rc.8** 이상)으로 처리됩니다.
+
+### 삭제
+- 단락 인계 브리지 제거(`llm-openai-completions` 목록 유지 중단). 어댑터 플러그인은 더 이상 필요하지 않습니다.
+
+### 변경
+- 자동 compat 브리지를 공식 compat 면으로 재작성: 라우트 수준 `compat.supportsDeveloperRole: false` 및 토글형 사고 모델에 대한 모델 수준 `compat.thinkingFormat: 'qwen-chat-template'`(순수 vLLM은 최상위 `enable_thinking`을 무시).
+- 기능 카드에서 단락 제거: 「게이트웨이가 developer 역할 미지원」스위치로 교체, 인계 목록 게이팅 폐지, 사고+시각 → effort 지원 → effort 편집기의 점진적 UI로 변경.
+- `declaresThinking`이 `modelOverrides`도 스캔.
+
+### 비고
+- dsh ≥ v0.1.0-rc.8 필요. 응답 측 인라인 `<think>` 분할은 게이트웨이 문제(vLLM은 `--reasoning-parser qwen3`).
+
 ## [0.7.0] — 2026-08-30
 
 ### 추가

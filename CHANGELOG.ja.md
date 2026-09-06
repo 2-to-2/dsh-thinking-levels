@@ -6,6 +6,21 @@
 - [日本語 changelog](./CHANGELOG.ja.md)
 - [한국어 changelog](./CHANGELOG.ko.md)
 
+## [0.7.0-beta.1] — 2026-09-06
+
+> **ベータ版：ショートサーキット経路の廃止。** 本リリースは `dsh-llm-openai-completions`（および一切の transport 引き継ぎサイドパス）に依存しません。すべてのゲートウェイ修正は公式 `llm-pi-ai` compat 面（**dsh v0.1.0-rc.8** 以降で利用可能）に乗ります。
+
+### 削除
+- ショートサーキット引き継ぎブリッジを削除（`llm-openai-completions` リストの維持を停止）。アダプタープラグインは不要です。
+
+### 変更
+- 自動 compat ブリッジを公式 compat 面へ書き直し：ルートレベル `compat.supportsDeveloperRole: false` と、トグル型思考モデルへのモデルレベル `compat.thinkingFormat: 'qwen-chat-template'`（素の vLLM はトップレベル `enable_thinking` を無視するため）。
+- 能力カードからショートサーキットを排除：「ゲートウェイは developer ロール非対応」スイッチに置き換え、引き継ぎリストの門控を廃止し、思考＋視覚 → effort 対応 → effort エディタの段階的 UI に変更。
+- `declaresThinking` が `modelOverrides` も走査。
+
+### 備考
+- dsh ≥ v0.1.0-rc.8 が必要。応答側のインライン `<think>` 分割はゲートウェイ側の課題（vLLM は `--reasoning-parser qwen3`）。
+
 ## [0.7.0] — 2026-08-30
 
 ### 追加
