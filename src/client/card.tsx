@@ -35,11 +35,6 @@ export interface ThinkingLevelsCardInjected {
   scope: SettingsScope<ThinkingLevelsConfig>
   /** The `llm-pi-ai` settings namespace, read and written for model capabilities. */
   piAiScope: SettingsScope<unknown>
-  /**
-   * The `llm-openai-completions` takeover list, read so the model editor
-   * surfaces only routes the openai-completions adapter actually serves.
-   */
-  takeoverScope: SettingsScope<unknown>
 }
 
 /** Full props: locale seat + the injected scopes. */
@@ -276,14 +271,12 @@ function providersOf(snapshot: unknown): Record<string, unknown> {
     : {}
 }
 
-/** The provider ids the openai-completions adapter is set up to serve. */
-function takeoverListOf(snapshot: unknown): string[] {
-  if (typeof snapshot !== 'object' || snapshot === null) return []
-  const value = (snapshot as { value?: unknown }).value
-  if (typeof value !== 'object' || value === null) return []
-  const section = value as { enabled?: unknown; providers?: unknown }
-  if (section.enabled !== true || !Array.isArray(section.providers)) return []
-  return section.providers.filter((id): id is string => typeof id === 'string')
+/** Whether a route-level profile declares `compat.supportsDeveloperRole: false`. */
+function developerRoleDisabledOf(profile: unknown): boolean {
+  if (typeof profile !== 'object' || profile === null) return false
+  const compat = (profile as Record<string, unknown>)['compat']
+  if (typeof compat !== 'object' || compat === null || Array.isArray(compat)) return false
+  return (compat as Record<string, unknown>)['supportsDeveloperRole'] === false
 }
 
 /** One flattened capability entry: a provider's model at an array index. */
@@ -372,29 +365,19 @@ function ChevronIcon({ open }: { open: boolean }): JSX.Element {
  */
 function ModelCapabilities(props: {
   scope: SettingsScope<unknown>
-  takeoverScope: SettingsScope<unknown>
   t: (key: string) => string
   readonly: boolean
 }): JSX.Element {
-  const { scope, takeoverScope, t, readonly } = props
+  const { scope, t, readonly } = props
   const snapshot = useSyncExternalStore(
     (listener) => scope.subscribe(listener),
     () => scope.getSnapshot(),
   )
-  const takeover = useSyncExternalStore(
-    (listener) => takeoverScope.subscribe(listener),
-    () => takeoverScope.getSnapshot(),
-  )
   const unavailable = snapshot.status === 'unavailable'
   const providers = snapshot.status === 'ready' ? providersOf(snapshot) : {}
-  // Every llm-pi-ai provider is listed, each with a takeover switch; only
-  // routes currently in the takeover list get the model editor below. A
-  // provider that pi-ai serves natively (e.g. mimo via xiaomi) stays visible
-  // with its takeover switch OFF — flip it to hand the route to the
-  // openai-completions adapter and unlock its model editor.
-  const takeoverList = takeover.status === 'ready'
-    ? takeoverListOf(takeover)
-    : []
+  // Every llm-pi-ai provider is listed with its models — no list gating: the
+  // official compat surface (dsh ≥ rc.8) means pi-ai serves every route
+  // natively, so each model is editable right here.
   const allEntries = entriesOf(providers)
 
   // UI-only state: provider/model expansion, the wire drafts, and the query.
@@ -417,18 +400,20 @@ function ModelCapabilities(props: {
       .catch(() => { setBusy(false) })
   }
 
-  /** Toggle whether the openai-completions adapter takes over one provider. */
-  const toggleTakeover = (providerId: string): void => {
-    if (takeover.status !== 'ready' || readonly) return
-    const current = takeoverListOf(takeover)
-    const next = current.includes(providerId)
-      ? current.filter(id => id !== providerId)
-      : [...current, providerId]
-    setBusy(true)
-    void takeoverScope.set('providers', next)
-      .then(() => takeoverScope.set('enabled', next.length > 0))
-      .then(() => { setBusy(false) })
-      .catch(() => { setBusy(false) })
+  /** Toggle the route-level official compat flag: unchecked = inherit (unset). */
+  const toggleDeveloperRole = (providerId: string, next: boolean): void => {
+    commitProviders((current) => {
+      const profile = current[providerId] as Record<string, unknown> | undefined
+      if (profile === undefined) return current
+      const compat = typeof profile['compat'] === 'object' && profile['compat'] !== null && !Array.isArray(profile['compat'])
+        ? { ...(profile['compat'] as Record<string, unknown>) }
+        : {}
+      if (next) compat['supportsDeveloperRole'] = false
+      else delete compat['supportsDeveloperRole']
+      if (Object.keys(compat).length === 0) delete profile['compat']
+      else profile['compat'] = compat
+      return current
+    })
   }
 
   /** Patch one model row of one provider. */
@@ -696,20 +681,22 @@ function ModelCapabilities(props: {
                   <ChevronIcon open={providerOpen} />
                 </button>
                 <p style={providerNameStyle}>{providerId}</p>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '11px', whiteSpace: 'nowrap', color: 'var(--dsw-alias-label-secondary)' }}>
+                <label
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '11px', whiteSpace: 'nowrap', color: 'var(--dsw-alias-label-secondary)' }}
+                  title={t('card.capabilities.developerRoleHint')}
+                >
                   <input
                     type="checkbox"
-                    checked={takeoverList.includes(providerId)}
+                    checked={developerRoleDisabledOf(providers[providerId])}
                     disabled={readonly || busy}
-                    onChange={() => toggleTakeover(providerId)}
+                    onChange={(event) => toggleDeveloperRole(providerId, event.currentTarget.checked)}
                   />
-                  <span>{t('card.capabilities.takeover')}</span>
+                  <span>{t('card.capabilities.developerRole')}</span>
                 </label>
                 <p style={providerBadgeStyle}>{providerEntries.length}</p>
               </div>
               {providerOpen
-                ? (takeoverList.includes(providerId)
-                  ? providerEntries.map(entry => {
+                ? providerEntries.map(entry => {
                   const key = entryKey(entry)
                   const modelOpen = expandedModels[key] === true
                   const efforts = effortsOf(entry.model)
@@ -751,9 +738,7 @@ function ModelCapabilities(props: {
                       {modelOpen
                         ? (
                           <div style={{ padding: '4px 10px 10px', borderTop: '1px solid var(--dsw-alias-border-l2)' }}>
-                            {/* Capability switches first: is it a thinking model?
-                                Does it take effort levels? Only after both are
-                                confirmed does the effort editor appear. */}
+                            {/* Layer 1 — base capabilities: is it a thinking model? A vision model? */}
                             <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', margin: '2px 0 8px' }}>
                               <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
                                 <input
@@ -764,20 +749,35 @@ function ModelCapabilities(props: {
                                 />
                                 <span>{t('card.capabilities.thinking')}</span>
                               </label>
-                              {thinking
-                                ? (
-                                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
-                                    <input
-                                      type="checkbox"
-                                      checked={supportsEffort}
-                                      disabled={readonly || busy}
-                                      onChange={(event) => toggleEffortCapable(entry, event.currentTarget.checked)}
-                                    />
-                                    <span>{t('card.capabilities.supportsEffort')}</span>
-                                  </label>
-                                )
-                                : null}
+                              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={meta.image}
+                                  disabled={readonly || busy}
+                                  onChange={(event) => {
+                                    patchModel(entry.providerId, entry.index, (row) => {
+                                      // Image input implies text input; the pair is written together.
+                                      row['input'] = event.currentTarget.checked ? ['text', 'image'] : ['text']
+                                    })
+                                  }}
+                                />
+                                <span>{t('card.capabilities.vision')}</span>
+                              </label>
                             </div>
+                            {/* Layer 2 — only for thinking models: does it take reasoning_effort levels? */}
+                            {thinking
+                              ? (
+                                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', margin: '0 0 8px' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={supportsEffort}
+                                    disabled={readonly || busy}
+                                    onChange={(event) => toggleEffortCapable(entry, event.currentTarget.checked)}
+                                  />
+                                  <span>{t('card.capabilities.supportsEffort')}</span>
+                                </label>
+                              )
+                              : null}
                             {thinking && supportsEffort
                               ? (
                                 <>
@@ -855,22 +855,8 @@ function ModelCapabilities(props: {
                                 </>
                               )
                               : null}
-                            {/* Vision toggle + thinking format */}
+                            {/* Layer 4 — thinking format (wire serialization) */}
                             <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '10px' }}>
-                              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
-                                <input
-                                  type="checkbox"
-                                  checked={meta.image}
-                                  disabled={readonly || busy}
-                                  onChange={(event) => {
-                                    patchModel(entry.providerId, entry.index, (row) => {
-                                      // Image input implies text input; the pair is written together.
-                                      row['input'] = event.currentTarget.checked ? ['text', 'image'] : ['text']
-                                    })
-                                  }}
-                                />
-                                <span>{t('card.capabilities.vision')}</span>
-                              </label>
                               <label style={fieldStyle}>
                                 <span style={fieldLabelStyle}>{t('card.capabilities.thinkingFormat')}</span>
                                 <select
@@ -958,11 +944,6 @@ function ModelCapabilities(props: {
                     </div>
                   )
                 })
-                  : (
-                    <p style={{ ...hintStyle, padding: '8px 10px' }}>
-                      {t('card.capabilities.notTakenOver')}
-                    </p>
-                  ))
                 : null}
             </div>
           )
@@ -978,7 +959,7 @@ function ModelCapabilities(props: {
  * default so the plugin tab stays a tidy list of drawers.
  * @param props - locale copy and the injected scopes.
  */
-export function ThinkingLevelsCard({ t, scope, piAiScope, takeoverScope }: ThinkingLevelsCardProps): JSX.Element {
+export function ThinkingLevelsCard({ t, scope, piAiScope }: ThinkingLevelsCardProps): JSX.Element {
   const [open, setOpen] = useState(false)
   const snapshot = useSyncExternalStore(
     (listener) => scope.subscribe(listener),
@@ -1089,7 +1070,7 @@ export function ThinkingLevelsCard({ t, scope, piAiScope, takeoverScope }: Think
                   </div>
                   {!snapshot.writable
                     && <p style={{ margin: '8px 0 0', fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' }}>{t('card.readonly')}</p>}
-                  <ModelCapabilities scope={piAiScope} takeoverScope={takeoverScope} t={t} readonly={readonly} />
+                  <ModelCapabilities scope={piAiScope} t={t} readonly={readonly} />
                 </>
               )}
           </div>

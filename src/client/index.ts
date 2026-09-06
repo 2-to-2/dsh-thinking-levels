@@ -45,13 +45,11 @@ export function apply(ctx: ClientContext): void {
         const scope = ctx.settingsScope.bind<ThinkingLevelsConfig>({ namespace: THINKING_LEVELS_NS })
         // The llm-pi-ai namespace is bound read/write so the card can surface
         // and edit custom-provider model capabilities (vision / thinking /
-        // effort levels / thinking format) without touching any official
+        // effort levels / thinking format / the route-level official
+        // compat.supportsDeveloperRole flag) without touching any official
         // package — llm-pi-ai's own schema validates every write.
         const piAiScope = ctx.settingsScope.bind<unknown>({ namespace: 'llm-pi-ai' })
-        // The llm-openai-completions takeover list, read so the model editor
-        // shows only routes the openai-completions adapter actually serves.
-        const takeoverScope = ctx.settingsScope.bind<unknown>({ namespace: 'llm-openai-completions' })
-        return { scope, piAiScope, takeoverScope }
+        return { scope, piAiScope }
       },
     }, ThinkingLevelsCard)
   })
