@@ -2,6 +2,8 @@
 
 **为 [DeepSeek Harness (dsh)](https://github.com/deepseek-ai/deepseek-harness) 提供按轮次的思考档位（`reasoning_effort`）控制：在会话模型选择器中可选 `Auto`（mask）——由插件按工具调用历史自动在 `low` / `high` / `max` 间调度后提交 API；也可手动固定 `off` / `on` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max`，让廉价工具轮次保持廉价，同时绝不让重任务缺少推理。**
 
+> **v0.7.0-beta.1（2026-09-06）：短路路线退役。** 本版本不再依赖 `dsh-llm-openai-completions`——自定义网关修复全部改走 dsh 官方 `llm-pi-ai` compat 面（要求 **dsh ≥ v0.1.0-rc.8**），短路插件应保持卸载。详见 [CHANGELOG](./CHANGELOG.md)。
+
 - [English README](./README.md)
 - [中文 README](./README.zh.md)
 - [日本語 README](./README.ja.md)
@@ -146,16 +148,19 @@ config:
 
 > 语义说明：模型选择器选择优先于插件默认档位。选 `auto`（mask）→ 插件调度；选线缆档位 → 直接生效；未选择 → 使用插件的 `level` 默认档位。`allowDowngrade` / `allowUpgrade` 只约束 `auto` 调度。
 
-## 与 dsh-llm-openai-completions 自动联动（v0.5.2）
+## 官方 compat 面：短路工具退役（0.7.0-beta.1）
 
-自定义网关（vLLM / LM Studio / 自建 OpenAI 兼容代理）**声明思考功能后**（`llm-pi-ai` 的模型行有 `reasoningEfforts` 表），必须由 [dsh-llm-openai-completions](https://github.com/drscrewdriver/dsh-llm-openai-completions) 接管该路由——否则 pi-ai 会发 `role: "developer"`（400）或漏掉 `enable_thinking`。本插件**自动维护接管名单**：
+自定义网关（vLLM / LM Studio / 自建 OpenAI 兼容代理）**声明思考功能后**，本插件自动把修复写入 **dsh 官方 `llm-pi-ai` compat 面**（dsh ≥ **v0.1.0-rc.8** 引入，commit `884f7b9c41`）——不再需要 [dsh-llm-openai-completions](https://github.com/drscrewdriver/dsh-llm-openai-completions) 接管路由，短路插件应保持卸载：
 
-- 扫描 `llm-pi-ai.providers`，识别「自定义 openai-completions 网关（`api: openai-completions` 或非官方 baseURL）**且** 任一模型声明 `reasoningEfforts` 表」的 provider；
-- 自动将其并入 `llm-openai-completions.providers` 并置 `enabled: true`（保留用户已手动添加的名单，去重）；
-- 触发时机：插件启动、`llm/adapters-updated`、`llm-pi-ai` 或接管名单的 settings 变化——无需手动改配置；
-- 软耦合：`llm-openai-completions` 插件未安装（命名空间未注册）时自动跳过写入，不影响本插件其它功能。
+- 扫描 `llm-pi-ai.providers`，识别「自定义 openai-completions 网关（`api: openai-completions` 或非官方 baseURL）**且** 任一模型（含 `modelOverrides`）声明 `reasoningEfforts` 表」的路由，自动写入：
+  - 路由级 `compat.supportsDeveloperRole: false`——系统提示词按 `system` 角色发送，修复 vLLM / SGLang 的 `Unexpected message role` 400；
+  - toggle 型思考模型（思考表存在、行级无 `supportsReasoningEffort`）自动补模型级 `compat.thinkingFormat: 'qwen-chat-template'`——pi-ai 发 `chat_template_kwargs.enable_thinking`（裸 vLLM 忽略顶层 `enable_thinking`）；
+- 写入走官方设置通道（读 → 纯变换 → 整段 `settings.update('llm-pi-ai', …)`），dsh 的 schema 在**写入处**校验：低于 rc.8 的 dsh 会拒绝并日志告警，绝不静默错配；任何层级的显式值（true/false、已声明格式）永不覆盖；
+- 触发时机：插件启动、`llm/adapters-updated`、`llm-pi-ai` 的 settings 变化——无需手动改配置；
+- 能力卡片同步去短路化：provider 行的开关是「**网关不支持 developer 角色**」（写/清路由级 flag，取消勾选恢复继承），模型编辑器按渐进层级展示（思考/视觉 → effort 支持 → effort 编辑表）；
+- 响应侧的内联 `<think>` 拆分是**网关职责**：裸 vLLM 请加 `--reasoning-parser qwen3`（pi-ai 只解析 `reasoning_content` / `reasoning` / `reasoning_text`）。
 
-## 依赖说明
+# 依赖说明
 
 插件 host 侧**不**值依赖 `@deepseek-ai/dsh-settings`（设置注册通过 cordis 的 `settings` 服务，由 dsh 运行时提供）——无需在 profile 中手动安装官方包。`dependencies` 仅 `@deepseek-ai/schemastery`（随包自动安装）。
 
@@ -164,10 +169,10 @@ config:
 ```bash
 npm run lint        # eslint（typescript-eslint flat config）
 npm run typecheck   # tsc --noEmit
-npm test            # vitest — 46 个测试
+npm test            # vitest — 65 个测试
 ```
 
-测试覆盖：档位策略（手动透传含扩展档位、`on` 钳制、auto 调度、档位校验、简单工具边界）、模型能力守卫（`reasoningEffortSupported`、`resolveEffortInjection` 剥离/透传）、会话事件解析（守卫、窗口截断、畸形记录）、配置 schema（默认值同步、越界拒绝、`models` 覆盖）、接管同步（识别、去重合并、软耦合）。
+测试覆盖：档位策略（手动透传含扩展档位、`on` 钳制、auto 调度、档位校验、简单工具边界）、模型能力守卫（`reasoningEffortSupported`、`resolveEffortInjection` 剥离/透传）、会话事件解析（守卫、窗口截断、畸形记录）、配置 schema（默认值同步、越界拒绝、`models` 覆盖）、官方 compat 同步（识别、显式值尊重、身份幂等、写入处 schema 校验）。
 
 ## 许可
 

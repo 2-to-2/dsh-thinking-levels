@@ -3,6 +3,8 @@
 **Per-round thinking-level (`reasoning_effort`) control for [DeepSeek Harness (dsh)](https://github.com/deepseek-ai/deepseek-harness): pick `Auto` (a mask) in the session model selector and the plugin schedules `low` / `high` / `max` from the recent tool-call history before submitting the API effort — or fix a wire level (`off` / `on` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max`) manually. Cheap tool rounds stay cheap; heavy work never starves.**
 
 - [English README](./README.md)
+> **v0.7.0-beta.1 (2026-09-06): the short-circuit route is retired.** This release no longer depends on `dsh-llm-openai-completions` — custom-gateway fixes ride the official `llm-pi-ai` compat surface (requires **dsh ≥ v0.1.0-rc.8**); keep the adapter plugin uninstalled. See the [CHANGELOG](./CHANGELOG.md).
+
 - [中文 README](./README.zh.md)
 - [日本語 README](./README.ja.md)
 - [한국어 README](./README.ko.md)
@@ -28,13 +30,13 @@ Screenshots of the live UI (dsh web):
 </figure>
 
 <figure>
-  <img style="max-width:100%" alt="思考档位 settings card: default level (auto scheduling), enable / allow-downgrade / allow-upgrade toggles, llm-pi-ai custom-provider model-capability table with per-model short-circuit takeover, and apply-to-all presets (Off/High/Max official DeepSeek style, Off/Low/Medium/High generic)." src="assets/自动思考级别配置.png" />
+  <img style="max-width:100%" alt="思考档位 settings card: default level (auto scheduling), enable / allow-downgrade / allow-upgrade toggles, llm-pi-ai custom-provider model-capability table with the progressive per-model editor, and apply-to-all presets (Off/High/Max official DeepSeek style, Off/Low/Medium/High generic)." src="assets/自动思考级别配置.png" />
   <figcaption>Thinking-level settings card: the auto scheduler plus its boundaries, and llm-pi-ai model-capability mapping (gear → gateway wire values).</figcaption>
 </figure>
 
 <figure>
-  <img style="max-width:100%" alt="Per-model capability editor for a custom openai-completions model (local-35b / Qwen3.6-35B-A3B): short-circuit takeover checked; thinking model and vision enabled, support think effort off; thinking format qwen; context-window limit presets 64K/128K/256K/400K/512K/1M with a custom input." src="assets/自定义模型的思考接管-短路-上下文窗口限制.png" />
-  <figcaption>Per-model capability card — pairs with <a href="https://github.com/drscrewdriver/dsh-llm-openai-completions">dsh-llm-openai-completions</a>: this card detects &amp; writes capabilities, that adapter takes over the wire (compat.thinkingFormat).</figcaption>
+  <img style="max-width:100%" alt="Per-model capability editor for a custom openai-completions model (local-35b / Qwen3.6-35B-A3B): thinking model and vision enabled, support think effort off, thinking format qwen-chat-template (auto-filled); no takeover switch — the official compat flag lives on the provider row; context-window limit presets 64K/128K/256K/400K/512K/1M with a custom input." src="assets/自定义模型的思考接管-短路-上下文窗口限制.png" />
+  <figcaption>Per-model capability card — pairs with <a href="https://github.com/drscrewdriver/dsh-llm-openai-completions">dsh-llm-openai-completions</a>: this card detects &amp; writes capabilities into the official llm-pi-ai compat surface (no adapter needed since 0.7.0-beta.1).</figcaption>
 </figure>
 
 ## Levels
@@ -64,7 +66,7 @@ For hand-declared `llm-pi-ai` models the settings card lets you map each level t
 
 The settings card's per-model editor now includes a **context window limit** control: preset buttons `64K / 128K / 256K / 400K / 512K / 1M`, a custom integer input, and a clear button. The value is written to the `llm-pi-ai` model entry `contextWindow` (integer `2000`–`1000000`).
 
-Upstream, the harness consumes it through `resolveModelInfo(...).context.contextWindow` for compaction thresholds, context-overflow detection and context-pressure projections. Because `llm-pi-ai` re-reads the live config on every resolve and the openai-completions takeover does not block model discovery, a settings edit takes effect on the next request without a restart.
+Upstream, the harness consumes it through `resolveModelInfo(...).context.contextWindow` for compaction thresholds, context-overflow detection and context-pressure projections. Because `llm-pi-ai` re-reads the live config on every resolve and the compat sync does not block model discovery, a settings edit takes effect on the next request without a restart.
 
 The plugin config also accepts `models['provider/model'].contextWindow` as a validated (integer `2000`–`1000000`) declaration at the composition/config surface.
 
@@ -179,31 +181,38 @@ Defaults: `{ enabled: true, level: 'auto', allowDowngrade: true, allowUpgrade: f
 
 > Semantics: the model-selector pick outranks the plugin's default level. Pick `auto` (mask) → plugin schedules; pick a wire level → applied directly; pick nothing → the plugin's `level` default is used. `allowDowngrade` / `allowUpgrade` constrain `auto` scheduling only.
 
-## Auto-takeover of dsh-llm-openai-completions (v0.5.2)
+## Official compat surface: the short-circuit tool is retired (0.7.0-beta.1)
 
-Custom gateways (vLLM / LM Studio / self-hosted OpenAI-compatible proxies) must be served by
-[dsh-llm-openai-completions](https://github.com/drscrewdriver/dsh-llm-openai-completions) once
-they declare thinking (`reasoningEfforts` table in `llm-pi-ai`) — otherwise pi-ai sends
-`role: "developer"` (400) or drops `enable_thinking`. This plugin **maintains the takeover list
-automatically**:
+Once custom gateways (vLLM / LM Studio / self-hosted OpenAI-compatible proxies) declare
+thinking, this plugin writes the fixes into the **official `llm-pi-ai` compat surface**
+(introduced in dsh ≥ **v0.1.0-rc.8**, commit `884f7b9c41`) —
+[dsh-llm-openai-completions](https://github.com/drscrewdriver/dsh-llm-openai-completions)
+is no longer needed and should stay uninstalled:
 
-- Scans `llm-pi-ai.providers` for providers that are custom openai-completions gateways
+- Scans `llm-pi-ai.providers` for routes that are custom openai-completions gateways
   (`api: openai-completions` or a non-official baseURL) **and** declare a `reasoningEfforts`
-  table on any model;
-- Merges them into `llm-openai-completions.providers` with `enabled: true` (existing manual
-  entries are preserved, deduplicated);
-- Triggers on plugin start, `llm/adapters-updated`, and settings changes to `llm-pi-ai` or the
-  takeover list — no manual config editing;
-- Soft-coupled: skips the write silently when `llm-openai-completions` is not installed (its
-  namespace is unregistered).
+  table on any model (including `modelOverrides`), then writes:
+  - route-level `compat.supportsDeveloperRole: false` — the system prompt goes out as
+    `system`, fixing the vLLM / SGLang `Unexpected message role` 400;
+  - model-level `compat.thinkingFormat: 'qwen-chat-template'` on toggle-style thinking rows
+    (thinking table without row-level `supportsReasoningEffort`) — pi-ai then sends
+    `chat_template_kwargs.enable_thinking` (bare vLLM servers ignore the top-level
+    `enable_thinking` of the plain `qwen` format);
+- Writes go through the official settings channel (read → pure transform → whole-section
+  `settings.update('llm-pi-ai', …)`), so dsh's schema validates the write **where it is
+  written**: a dsh older than rc.8 rejects the fields with a log warning — no silent
+  misconfiguration; explicit values on any layer are never clobbered;
+- Triggers on plugin start, `llm/adapters-updated`, and `llm-pi-ai` settings changes — no
+  manual config editing;
+- The capability card is de-short-circuited too: the provider-level switch is now
+  "**gateway rejects the developer role**" (writes/clears the route-level flag; unchecking
+  restores inheritance), and the model editor is progressive
+  (thinking/vision → effort support → effort editor);
+- Response-side inline `<think>` splitting remains a **gateway concern**: bare vLLM needs
+  `--reasoning-parser qwen3` (pi-ai parses only `reasoning_content` / `reasoning` /
+  `reasoning_text`).
 
-The takeover mechanism as a whole — control-plane contract (who is taken over,
-how a control-layer plugin decides and injects) and transport-plane wire
-contract — is standardized in the
-**[Takeover Control Spec](https://github.com/drscrewdriver/dsh-llm-openai-completions/blob/main/docs/takeover-spec.md)**;
-this plugin is the reference control-layer implementation of it.
-
-## Dependency note
+# Dependency note
 
 The host half does **not** value-depend on `@deepseek-ai/dsh-settings` (settings registration goes through the cordis `settings` service provided by the dsh runtime) — no need to install official packages into the profile manually. `dependencies` is just `@deepseek-ai/schemastery` (installed automatically with the package).
 
@@ -215,7 +224,7 @@ npm run typecheck   # tsc --noEmit
 npm test            # vitest — 46 tests
 ```
 
-Test coverage: level policy (manual pass-through incl. the extended levels, `on` clamping, auto scheduler, validation, simple-tool boundary), the model-capability guard (`reasoningEffortSupported`, `resolveEffortInjection` stripping/passthrough), session-event parsing (guards, window cap, malformed records), the config schema (defaults lockstep, out-of-band rejection, `models` overrides), and takeover-sync (identification, dedupe merge, soft-coupling).
+Test coverage: level policy (manual pass-through incl. the extended levels, `on` clamping, auto scheduler, validation, simple-tool boundary), the model-capability guard (`reasoningEffortSupported`, `resolveEffortInjection` stripping/passthrough), session-event parsing (guards, window cap, malformed records), the config schema (defaults lockstep, out-of-band rejection, `models` overrides), and the official-compat sync (identification, explicit-value respect, identity idempotence, write-time schema gating).
 
 ## License
 

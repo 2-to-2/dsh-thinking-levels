@@ -3,6 +3,8 @@
 **[DeepSeek Harness (dsh)](https://github.com/deepseek-ai/deepseek-harness)용 라운드별 사고 수준(`reasoning_effort`) 제어: 세션 모델 선택기에서 `Auto`(마스크)를 고르면 플러그인이 최근 도구 호출 기록에서 `low` / `high` / `max`를 스케줄링하여 API에 제출합니다. 또는 `off` / `on` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max`를 수동으로 고정. 가벼운 도구 라운드는 가볍게, 무거운 작업도 추론 부족 없이.**
 
 - [English README](./README.md)
+> **v0.7.0-beta.1(2026-09-06): 단락 경로 폐지.** 이 릴리스는 `dsh-llm-openai-completions`에 의존하지 않습니다——게이트웨이 수정은 공식 `llm-pi-ai` compat 면(dsh ≥ v0.1.0-rc.8)으로 처리됩니다. 자세한 내용은 [CHANGELOG](./CHANGELOG.md).
+
 - [中文 README](./README.zh.md)
 - [日本語 README](./README.ja.md)
 - [한국어 README](./README.ko.md)
@@ -140,16 +142,16 @@ config:
 
 > 의미: 모델 선택기 선택이 플러그인 기본 수준보다 우선합니다. `auto`(마스크) → 플러그인 스케줄링. 와이어 수준 → 직접 적용. 미선택 → 플러그인 `level` 기본값. `allowDowngrade` / `allowUpgrade`는 `auto` 스케줄링만 제약합니다.
 
-## dsh-llm-openai-completions 자동 인계(v0.5.2)
+## 공식 compat 면: 단락 도구 폐지(0.7.0-beta.1)
 
-사용자 지정 게이트웨이(vLLM / LM Studio / 자체 OpenAI 호환 프록시)가 사고를 선언하면(`llm-pi-ai` 모델 행에 `reasoningEfforts` 테이블) [dsh-llm-openai-completions](https://github.com/drscrewdriver/dsh-llm-openai-completions)가 해당 라우트를 인계해야 합니다——그렇지 않으면 pi-ai가 `role: "developer"`(400)를 보내거나 `enable_thinking`을 누락합니다. 이 플러그인은 인계 목록을 **자동 유지**합니다:
+사용자 지정 게이트웨이가 사고를 선언하면, 본 플러그인은 **공식 `llm-pi-ai` compat 면**(dsh ≥ **v0.1.0-rc.8**)에 수정을 자동 기록합니다——[dsh-llm-openai-completions](https://github.com/drscrewdriver/dsh-llm-openai-completions)는 더 이상 필요하지 않으며, 제거된 상태를 유지하세요:
 
-- `llm-pi-ai.providers`를 스캔하여「사용자 지정 openai-completions 게이트웨이(`api: openai-completions` 또는 비공식 baseURL) **그리고** 어떤 모델이 `reasoningEfforts` 테이블을 선언」한 provider 식별;
-- 자동으로 `llm-openai-completions.providers`에 병합하고 `enabled: true`로(수동 추가분 유지, 중복 제거);
-- 트리거: 플러그인 시작, `llm/adapters-updated`, `llm-pi-ai` 또는 인계 목록 설정 변경——수동 편집 불필요;
-- 소프트 결합: `llm-openai-completions` 미설치(네임스페이스 미등록)면 쓰기를 건너뛰고 다른 기능에 영향 없음.
+- 라우트 수준 `compat.supportsDeveloperRole: false`(`Unexpected message role` 400 수정)와 토글형 사고 모델에 대한 모델 수준 `compat.thinkingFormat: 'qwen-chat-template'`(`chat_template_kwargs.enable_thinking` 전송)을 자동 기록;
+- 공식 설정 채널로 기록하며 dsh 스키마가 기록 시 검증(rc.8 미만은 거부 및 로그 경고); 명시적 값은 절대 덮어쓰지 않음;
+- 제공자 행의 스위치는 「게이트웨이가 developer 역할 미지원」으로 교체되고, 모델 편집기는 점진적 UI로 변경;
+- 응답 측 인라인 `<think>` 분할은 게이트웨이 책임(vLLM은 `--reasoning-parser qwen3`).
 
-## 의존성
+# 의존성
 
 호스트 측은 `@deepseek-ai/dsh-settings`에 값 의존하지 않습니다(설정 등록은 cordis `settings` 서비스 경유, dsh 런타임 제공). profile에 공식 패키지를 수동 설치할 필요가 없습니다. `dependencies`는 `@deepseek-ai/schemastery`뿐입니다(패키지와 함께 자동 설치).
 

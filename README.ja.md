@@ -3,6 +3,8 @@
 **[DeepSeek Harness (dsh)](https://github.com/deepseek-ai/deepseek-harness) 向けのラウンド単位思考レベル（`reasoning_effort`）制御：セッションのモデルセレクターで `Auto`（マスク）を選ぶと、プラグインが直近のツール呼び出し履歴から `low` / `high` / `max` をスケジュールして API に提出します。あるいは `off` / `on` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max` を手動で固定。軽いツールラウンドは軽いまま、重い作業も推論不足になりません。**
 
 - [English README](./README.md)
+> **v0.7.0-beta.1（2026-09-06）：ショートサーキット経路の廃止。** 本リリースは `dsh-llm-openai-completions` に依存しません——ゲートウェイ修正は公式 `llm-pi-ai` compat 面（dsh ≥ v0.1.0-rc.8）に乗ります。詳しくは [CHANGELOG](./CHANGELOG.md)。
+
 - [中文 README](./README.zh.md)
 - [日本語 README](./README.ja.md)
 - [한국어 README](./README.ko.md)
@@ -140,16 +142,16 @@ config:
 
 > 意味：モデルセレクターの選択はプラグインの既定レベルより優先されます。`auto`（マスク）→ プラグインがスケジュール。ワイヤーレベル → 直接適用。未選択 → プラグインの `level` 既定値。`allowDowngrade` / `allowUpgrade` は `auto` スケジュールのみを制約します。
 
-## dsh-llm-openai-completions の自動引き継ぎ（v0.5.2）
+## 公式 compat 面：ショートサーキットツール廃止（0.7.0-beta.1）
 
-カスタムゲートウェイ（vLLM / LM Studio / 自前の OpenAI 互換プロキシ）は、思考を宣言したら（`llm-pi-ai` のモデル行に `reasoningEfforts` テーブル）[dsh-llm-openai-completions](https://github.com/drscrewdriver/dsh-llm-openai-completions) がそのルートを引き継ぐ必要があります——そうしないと pi-ai が `role: "developer"`（400）を送信したり `enable_thinking` を落としたりします。このプラグインは引き継ぎリストを**自動保守**します：
+カスタムゲートウェイが思考を宣言したら、本プラグインは**公式 `llm-pi-ai` compat 面**（dsh ≥ **v0.1.0-rc.8**）へ修正を自動書き込みします——[dsh-llm-openai-completions](https://github.com/drscrewdriver/dsh-llm-openai-completions) は不要となり、アンインストールのままにしてください：
 
-- `llm-pi-ai.providers` をスキャンし、「カスタム openai-completions ゲートウェイ（`api: openai-completions` または非公式 baseURL）**かつ** いずれかのモデルが `reasoningEfforts` テーブルを宣言」する provider を特定；
-- 自動的に `llm-openai-completions.providers` へマージし `enabled: true` に（手動追加分は保持、重複排除）；
-- トリガー：プラグイン起動、`llm/adapters-updated`、`llm-pi-ai` または引き継ぎリストの設定変更——手動編集不要；
-- ソフト結合：`llm-openai-completions` 未インストール（名前空間未登録）なら書き込みをスキップし、他機能に影響しません。
+- ルートレベル `compat.supportsDeveloperRole: false`（`Unexpected message role` 400 を修正）と、トグル型思考モデルへのモデルレベル `compat.thinkingFormat: 'qwen-chat-template'`（`chat_template_kwargs.enable_thinking` を送信）を自動書き込み；
+- 公式設定チャネルで書き込み、dsh のスキーマが書き込み時に検証（rc.8 未満では拒否してログ警告）；明示的な値は決して上書きしません；
+- プロバイダー行のスイッチは「ゲートウェイは developer ロール非対応」に置き換わり、モデルエディタは段階的 UI に；
+- 応答側のインライン `<think>` 分割はゲートウェイの責務（vLLM は `--reasoning-parser qwen3`）。
 
-## 依存関係
+# 依存関係
 
 host 側は `@deepseek-ai/dsh-settings` に値依存しません（設定登録は cordis の `settings` サービス経由。dsh ランタイムが提供）。profile への公式パッケージ手動インストールは不要です。`dependencies` は `@deepseek-ai/schemastery` のみ（パッケージと一緒に自動インストール）。
 
