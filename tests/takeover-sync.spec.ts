@@ -104,7 +104,7 @@ describe('withOfficialCompatFixes', () => {
     expect(((next.providers?.local35b?.compat ?? {}) as Record<string, unknown>)['supportsDeveloperRole']).toBe(true)
     // ...but the model-level toggle fix is a different concern and still applies
     const rows = next.providers?.local35b?.models as Array<Record<string, unknown>>
-    expect(rows[0]?.compat).toEqual({ thinkingFormat: 'qwen' })
+    expect(rows[0]?.compat).toEqual({ thinkingFormat: 'qwen-chat-template' })
   })
 
   it('merges into an existing compat object without clobbering siblings', () => {
@@ -133,7 +133,7 @@ describe('withOfficialCompatFixes', () => {
     }
     const next = withOfficialCompatFixes(section)!
     const rows = next.providers?.local35b?.models as Array<Record<string, unknown>>
-    expect(rows[0]?.compat).toEqual({ thinkingFormat: 'qwen' })
+    expect(rows[0]?.compat).toEqual({ thinkingFormat: 'qwen-chat-template' })
     expect(rows[1]?.compat).toEqual({ supportsReasoningEffort: true })
     expect(rows[2]?.compat).toEqual({ thinkingFormat: 'qwen-chat-template' })
   })
@@ -149,7 +149,7 @@ describe('withOfficialCompatFixes', () => {
     }
     const next = withOfficialCompatFixes(section)!
     const rows = next.providers?.local35b?.models as Array<Record<string, unknown>>
-    expect(rows[0]?.compat).toEqual({ supportsDeveloperRole: false, thinkingFormat: 'qwen' })
+    expect(rows[0]?.compat).toEqual({ supportsDeveloperRole: false, thinkingFormat: 'qwen-chat-template' })
   })
 
   it('scans modelOverrides for thinking declaration (models[]-absent routes)', () => {

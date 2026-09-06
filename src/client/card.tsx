@@ -449,7 +449,7 @@ function ModelCapabilities(props: {
         // an absent format — an explicit choice is never clobbered.
         if (!effortCapable) {
           patchCompat(row, (compat) => {
-            if (compat['thinkingFormat'] === undefined) compat['thinkingFormat'] = 'qwen'
+            if (compat['thinkingFormat'] === undefined) compat['thinkingFormat'] = 'qwen-chat-template'
           })
         }
       } else {
@@ -467,7 +467,7 @@ function ModelCapabilities(props: {
         // Counterpart of the auto-fill in toggleThinking: effort-capable rows
         // need reasoning_effort on the wire, so drop the toggle-style qwen
         // format when effort turns on (it would drive enable_thinking instead).
-        if (next && compat['thinkingFormat'] === 'qwen') delete compat['thinkingFormat']
+        if (next && compat['thinkingFormat'] === 'qwen-chat-template') delete compat['thinkingFormat']
       })
     })
   }

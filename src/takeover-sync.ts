@@ -149,15 +149,16 @@ function rowThinkingFormat(row: PiAiModelRow): unknown {
  */
 function withToggleThinkingFormat(row: PiAiModelRow): PiAiModelRow {
   // Only TOGGLE-STYLE thinking models (a reasoningEfforts table but no
-  // row-level effort support) need `thinkingFormat: qwen`: pi-ai's default
-  // `openai` format sends reasoning_effort — which an early vLLM thinking
-  // model rejects or ignores — instead of the enable_thinking flag the model
-  // actually needs to open up deep thinking. An explicit thinkingFormat is
-  // respected and never clobbered.
+  // row-level effort support) need `thinkingFormat: qwen-chat-template`:
+  // pi-ai's default `openai` format sends reasoning_effort — which an early
+  // vLLM thinking model rejects or ignores — and the plain `qwen` format's
+  // TOP-LEVEL enable_thinking is silently dropped by bare vLLM servers, whose
+  // Qwen3 templates only honor chat_template_kwargs.enable_thinking. An
+  // explicit thinkingFormat is respected and never clobbered.
   if (!isEffortsTable(row.reasoningEfforts)) return row
   if (rowEffortCapable(row)) return row
   if (rowThinkingFormat(row) !== undefined) return row
-  return { ...row, compat: { ...ownCompat(row), thinkingFormat: 'qwen' } }
+  return { ...row, compat: { ...ownCompat(row), thinkingFormat: 'qwen-chat-template' } }
 }
 
 /**
@@ -168,7 +169,7 @@ function withToggleThinkingFormat(row: PiAiModelRow): PiAiModelRow {
  * 1. ROUTE level: `compat.supportsDeveloperRole: false` when the route does
  *    not carry an explicit value — the system prompt goes out as `system`
  *    (fixes the Unexpected message role 400 on vLLM/SGLang gateways).
- * 2. MODEL level: `compat.thinkingFormat: 'qwen'` on TOGGLE-STYLE thinking
+ * 2. MODEL level: `compat.thinkingFormat: 'qwen-chat-template'` on TOGGLE-STYLE thinking
  *    model rows (a reasoningEfforts table, no row-level
  *    `supportsReasoningEffort: true`, no explicit thinkingFormat) — pi-ai
  *    then sends the `enable_thinking` flag these early vLLM thinking models

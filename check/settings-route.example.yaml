@@ -22,7 +22,12 @@ providers:
         #   thinkingFormat: deepseek   # off 发送 thinking:{type:disabled},其余档位附带 thinking:{type:enabled}
         # Qwen3.6 toggle 型端点(rc.8 起官方支持,替代 dsh-llm-openai-completions 的接管):
         # compat:
-        #   thinkingFormat: qwen              # 发送 enable_thinking: boolean,不发 reasoning_effort
+        #   thinkingFormat: qwen              # 顶层 enable_thinking: boolean(仅网关认顶层字段时用)
+        # 裸 vLLM 只认模板参数,必须用 chat-template 变体:
+        # compat:
+        #   thinkingFormat: qwen-chat-template  # 发 chat_template_kwargs:{enable_thinking, preserve_thinking}
+        #   ⚠ 该分支不并发 reasoning_effort(supportsReasoningEffort 在此格式下无效)——
+        #     档位选择仍驱动 enable_thinking 开/关,但等级不到线上;真正并列需 pi-ai 上游支持
         # 或 chat_template_kwargs 形式:
         # compat:
         #   thinkingFormat: qwen-chat-template
