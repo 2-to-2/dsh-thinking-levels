@@ -1,31 +1,41 @@
 /**
- * Auto-takeover sync: bridge from dsh-thinking-levels to the
- * dsh-llm-openai-completions adapter plugin.
+ * Auto-flag sync (check branch): bridge from dsh-thinking-levels to the
+ * OFFICIAL llm-pi-ai compat surface.
  *
- * The openai-completions adapter takes over streaming for the providers listed
- * in the `llm-openai-completions` settings namespace (`{ enabled, providers }`).
- * Maintaining that list by hand is friction: a user who configures a custom
- * gateway with thinking in `llm-pi-ai` (reasoningEfforts table) must ALSO add
- * the provider to the takeover list or the pi-ai adapter serves the route with
- * the wrong wire behavior (developer role / no enable_thinking).
+ * CHECK-BRANCH REPLACEMENT: the previous bridge maintained the
+ * `llm-openai-completions` takeover list of the dsh-llm-openai-completions
+ * adapter plugin (the short-circuit route). Since dsh v0.1.0-rc.8 the official
+ * `compat.supportsDeveloperRole` flag (commit 884f7b9c41) fixes the developer
+ * role 400 declaratively, so the short-circuit list is no longer needed: the
+ * sync now writes the flag into the OFFICIAL `llm-pi-ai` namespace instead.
  *
- * This module closes that gap: it scans the live `llm-pi-ai` section for
- * providers that (a) target a custom openai-completions gateway and (b) declare
- * thinking (a reasoningEfforts table), and computes the `llm-openai-completions`
- * list that would take them over. Pure functions here are unit-tested; the host
- * plugin wires them to the settings service.
+ * Storage pattern learned from hytime/dsh-thinking-effort's host side
+ * (src/host/settings.ts): read the live section → pure transform with
+ * immutable clones → `settings.update('llm-pi-ai', { providers })` whole-section
+ * writeback, so dsh's `llm-pi-ai` schema validator (assertServiceable) gates
+ * the write where it is WRITTEN (settings-rejected names route and model)
+ * instead of storing something the reader cannot serve. The flag is written at
+ * the ROUTE level (`providers.<route>.compat`) — the official inheritance chain
+ * (model → provider → catalog → protocol) means a model-level explicit value
+ * still wins, and explicit values are never clobbered by this sync.
  *
- * Deliberately soft-coupled: nothing here value-imports the adapter plugin or
- * dsh-settings. If the `llm-openai-completions` namespace is unregistered (the
- * plugin is not composed), the host skips the write — no error, no log spam.
+ * Identification is unchanged: a provider that (a) targets a custom
+ * openai-completions gateway and (b) declares thinking (a reasoningEfforts
+ * table) is exactly the route the short-circuit used to take over. Pure
+ * functions here are unit-tested; the host plugin wires them to the settings
+ * service.
+ *
+ * Deliberately soft-coupled: nothing here value-imports dsh-settings. If the
+ * installed dsh predates rc.8 the schema rejects the unknown field and the
+ * host catches and logs the rejection — no error, no log spam.
  * @module dsh-thinking-levels/takeover-sync
  */
 
-/** The settings namespace owned by dsh-llm-openai-completions. */
-export const TAKEOVER_NAMESPACE = 'llm-openai-completions'
-
 /** The settings namespace holding the provider/model configs (llm-pi-ai). */
 export const PI_AI_NAMESPACE = 'llm-pi-ai'
+
+/** The settings namespace of the retired short-circuit adapter, still READ to gate posture. */
+export const TAKEOVER_NAMESPACE = 'llm-openai-completions'
 
 /** One model row of the llm-pi-ai section (minimal face). */
 export interface PiAiModelRow {
@@ -38,19 +48,14 @@ export interface PiAiProviderProfile {
   api?: unknown
   baseURL?: unknown
   models?: unknown
+  compat?: unknown
   /** Other profile fields (apiKeyEnv, displayName, …) exist but are unused. */
   [key: string]: unknown
 }
 
-/** The llm-pi-ai section slice this module reads. */
+/** The llm-pi-ai section slice this module reads and transforms. */
 export interface PiAiSection {
   providers?: Record<string, PiAiProviderProfile>
-}
-
-/** The llm-openai-completions section this module writes. */
-export interface TakeoverSection {
-  enabled: boolean
-  providers: string[]
 }
 
 /** Hosts that are NOT a custom gateway (official OpenAI-compatible endpoints). */
@@ -81,6 +86,18 @@ export function isCustomOpenAiGateway(profile: PiAiProviderProfile | undefined):
   }
 }
 
+/** The model rows a profile declares, from models[] then modelOverrides (effort's modelRows pattern). */
+function modelRows(profile: PiAiProviderProfile): PiAiModelRow[] {
+  const rows: PiAiModelRow[] = []
+  if (Array.isArray(profile.models)) {
+    rows.push(...profile.models.filter((row): row is PiAiModelRow => typeof row === 'object' && row !== null))
+  }
+  if (typeof profile.modelOverrides === 'object' && profile.modelOverrides !== null && !Array.isArray(profile.modelOverrides)) {
+    rows.push(...Object.values(profile.modelOverrides).filter((row): row is PiAiModelRow => typeof row === 'object' && row !== null))
+  }
+  return rows
+}
+
 /**
  * Whether a provider declares thinking: at least one model row carries a
  * reasoningEfforts table (thinking on). `false` (thinking off) and absent
@@ -89,11 +106,8 @@ export function isCustomOpenAiGateway(profile: PiAiProviderProfile | undefined):
  * @returns true when any model declares a reasoningEfforts table.
  */
 export function declaresThinking(profile: PiAiProviderProfile | undefined): boolean {
-  if (profile === undefined || !Array.isArray(profile.models)) return false
-  return profile.models.some((row) => {
-    if (typeof row !== 'object' || row === null) return false
-    return isEffortsTable((row as PiAiModelRow).reasoningEfforts)
-  })
+  if (profile === undefined) return false
+  return modelRows(profile).some((row) => isEffortsTable(row.reasoningEfforts))
 }
 
 /**
@@ -112,30 +126,40 @@ export function identifyTakeoverProviders(section: PiAiSection | undefined): str
 }
 
 /**
- * Compute the next takeover section: the previous user list plus every
- * identified provider (deduped, order preserved), enabled. When nothing
- * changes, the previous section is returned unchanged (identity — the host
- * compares before writing).
- * @param previous - the current llm-openai-completions value, if registered.
- * @param identified - providers identified for takeover.
- * @returns the section to write, or the previous value when no change.
+ * Compute the llm-pi-ai section with the official
+ * `compat.supportsDeveloperRole: false` flag written at the ROUTE level for
+ * every identified provider (custom openai-completions gateway AND thinking
+ * declared) that does not already carry an explicit flag value.
+ *
+ * Semantics (learned from dsh-thinking-effort's storage handling):
+ * - Only the route-level `providers.<route>.compat` is written; model rows
+ *   (models[] / modelOverrides) are never touched — the official inheritance
+ *   chain keeps a model-level explicit value authoritative.
+ * - An EXPLICIT value (true or false) on any layer is respected and left
+ *   alone; only an ABSENT route-level flag is filled with `false`. This keeps
+ *   the sync idempotent and never overrides user intent.
+ * - Immutable: unchanged profiles and the unchanged section are returned by
+ *   reference, so the host can skip the write on identity.
+ * @param section - the live llm-pi-ai section.
+ * @returns the next section, or the previous value (identity) when no change.
  */
-export function nextTakeoverSection(
-  previous: TakeoverSection | undefined,
-  identified: readonly string[],
-): TakeoverSection {
-  const base: TakeoverSection = previous ?? { enabled: false, providers: [] }
-  if (identified.length === 0) {
-    // Nothing to take over: keep the previous list untouched (respect a manual
-    // list; do not enable on our own).
-    return base
+export function withDeveloperRoleDisabled(
+  section: PiAiSection | undefined,
+): PiAiSection | undefined {
+  const providers = section?.providers
+  if (typeof providers !== 'object' || providers === null) return section
+  let nextProviders: Record<string, PiAiProviderProfile> | undefined
+  for (const [id, profile] of Object.entries(providers)) {
+    if (!isCustomOpenAiGateway(profile) || !declaresThinking(profile)) continue
+    const explicit = (profile.compat as Record<string, unknown> | undefined)?.['supportsDeveloperRole']
+    if (explicit !== undefined) continue
+    nextProviders ??= { ...providers }
+    nextProviders[id] = {
+      ...profile,
+      compat: { ...(typeof profile.compat === 'object' && profile.compat !== null ? profile.compat as Record<string, unknown> : {}), supportsDeveloperRole: false },
+    }
   }
-  const merged = [...base.providers]
-  for (const id of identified) {
-    if (!merged.includes(id)) merged.push(id)
-  }
-  if (base.enabled && merged.length === base.providers.length) return base
-  return { enabled: true, providers: merged }
+  return nextProviders === undefined ? section : { ...section, providers: nextProviders }
 }
 
 /**

@@ -33,13 +33,11 @@ import { assertEffortId, reasoningEffortSupported, resolveEffortInjection, type 
 import { recentToolCalls } from './session-events.ts'
 import { CONTEXT_WINDOW_MAX, CONTEXT_WINDOW_MIN } from './context-window.ts'
 import {
-  identifyTakeoverProviders,
-  nextTakeoverSection,
   PI_AI_NAMESPACE,
   TAKEOVER_NAMESPACE,
   takeoverProvidersOf,
+  withDeveloperRoleDisabled,
   type PiAiSection,
-  type TakeoverSection,
 } from './takeover-sync.ts'
 
 /** One configurer-confirmed capability override for a `provider/model` key. */
@@ -401,46 +399,48 @@ export function apply(ctx: Context, config: ThinkingLevelsConfig = DEFAULT_CONFI
     onChange: () => {},
   })
 
-  // Auto-takeover bridge: keep the dsh-llm-openai-completions provider list in
-  // sync with the llm-pi-ai section. A provider that targets a custom
-  // openai-completions gateway AND declares thinking (reasoningEfforts table)
-  // is exactly the route whose wire behavior must be taken over by the adapter
-  // plugin — without the list entry the pi-ai adapter would serve it (developer
-  // role 400 / no enable_thinking). The sync is soft-coupled: when the
-  // llm-openai-completions plugin is not composed its namespace is unregistered
-  // and the write is skipped. The read is lazy (the settings service may
-  // register after this plugin's apply) and writes are queued by the service,
-  // so no race with a concurrent Settings → Models edit.
+  // Official-compat bridge (check branch): write the OFFICIAL
+  // `compat.supportsDeveloperRole: false` flag into the llm-pi-ai namespace for
+  // every provider that targets a custom openai-completions gateway AND
+  // declares thinking (reasoningEfforts table). This replaces the retired
+  // short-circuit route (maintaining the dsh-llm-openai-completions takeover
+  // list): since dsh v0.1.0-rc.8 the declarative flag fixes the developer-role
+  // 400 at the pi-ai adapter itself, so pi-ai keeps serving the route and no
+  // transport takeover is needed. Storage pattern follows
+  // hytime/dsh-thinking-effort's host side: read → pure transform (identity
+  // when nothing to change) → whole-section update, so dsh's llm-pi-ai schema
+  // validator gates the write where it is WRITTEN; an installed dsh predating
+  // rc.8 rejects the unknown field and we log and keep the previous section.
+  // The read is lazy and writes are queued by the service, so no race with a
+  // concurrent Settings → Models edit.
   let syncTail: Promise<unknown> = Promise.resolve()
-  const syncTakeover = (): void => {
+  const syncDeveloperRole = (): void => {
     syncTail = syncTail.then(async () => {
       const settings = ctx.get('settings') as {
         get?: (ns: string) => unknown
         update?: (ns: string, patch: unknown) => Promise<unknown>
       } | undefined
-      const previous = settings?.get?.(TAKEOVER_NAMESPACE) as TakeoverSection | undefined
-      // Unregistered namespace → the adapter plugin is absent; never write.
-      if (previous === undefined) return
       const piAi = settings?.get?.(PI_AI_NAMESPACE) as PiAiSection | undefined
-      const next = nextTakeoverSection(previous, identifyTakeoverProviders(piAi))
-      if (next === previous) return
-      await settings?.update?.(TAKEOVER_NAMESPACE, next)
+      const next = withDeveloperRoleDisabled(piAi)
+      if (next === undefined || next === piAi) return
+      await settings?.update?.(PI_AI_NAMESPACE, { providers: next.providers })
       ctx.logger?.info?.(
-        '[thinking-levels] auto-takeover: llm-openai-completions providers=%j (from llm-pi-ai thinking routes)',
-        next.providers,
+        '[thinking-levels] official-compat: supportsDeveloperRole=false written to llm-pi-ai for custom thinking routes (short-circuit bridge retired)',
       )
     }).catch((error) => {
-      ctx.logger?.warn?.('[thinking-levels] auto-takeover sync failed (kept previous list)', error)
+      ctx.logger?.warn?.('[thinking-levels] developer-role compat sync rejected (schema gate); kept previous section', error)
     })
   }
 
   // Initial sync (adapters may register later; re-run on every adapters update
-  // and every settings document update so a Settings → Models edit propagates).
-  syncTakeover()
+  // and every llm-pi-ai settings update so a Settings → Models edit propagates.
+  // The write is identity-gated, so the re-entry triggered by our own update
+  // settles immediately).
+  syncDeveloperRole()
   const onSyncAny = ctx.on as unknown as (event: string, listener: (...args: never[]) => unknown) => void
-  onSyncAny('llm/adapters-updated', () => syncTakeover())
+  onSyncAny('llm/adapters-updated', () => syncDeveloperRole())
   onSyncAny('settings/document-updated', (ns: string) => {
-    if (ns === PI_AI_NAMESPACE || ns === TAKEOVER_NAMESPACE) syncTakeover()
+    if (ns === PI_AI_NAMESPACE) syncDeveloperRole()
   })
 
   // Inject the level decision into every model request of a step.

@@ -25,9 +25,11 @@
 ## 决策记录
 | 选项 | 选择 | 理由 |
 |------|------|------|
-| 在插件里实现 flag 写入逻辑 | 否 | flag 属于 dsh-llm-pi-ai 配置面,插件写入属重复造轮;YAGNI |
-| 接管短路开关(takeover 清单)逻辑 | 停用不替代 | 随插件卸载自然失效,配置即声明,无保存逻辑可迁移 |
-| dsh-llm-openai-completions 是否卸载 | 待验证 4/5 两项 | 1/2/3 已确认覆盖;4/5 是 README 声称的独有职责 |
+| 在插件里实现 flag 写入逻辑 | **是(check 分支,作为迁移桥)** | 用户裁定:短路逻辑开关原位替换为官方 flag 写入;学 effort 的宿主侧存储写法,不做配置面板 |
+| 短路接管清单(nextTakeoverSection) | 删除,原位替换为 `withDeveloperRoleDisabled` | 官方 compat 面使传输接管不再必要;identification 逻辑保留复用 |
+| 门控读桥(takeoverOf/piAiPosture) | 保留 | adapter 缺席时返回 null → 原生语义,与官方路径自洽 |
+| 写入层级 | 仅 route 级 `providers.<route>.compat` | 官方继承链 model→provider→catalog→protocol;显式值(true/false)永不覆盖,model 行不触碰 |
+| 写入方式 | 读→纯变换(身份比较)→整段 `settings.update('llm-pi-ai',{providers})` | effort host 模式;dsh schema 在写入处把关,rc.8 前版本拒绝被 catch 记日志 |
 
 ## 约束
 - dsh ≥ v0.1.0-rc.8(引入 884f7b9c41);thinkingFormat qwen 系 rc.8 起可用。

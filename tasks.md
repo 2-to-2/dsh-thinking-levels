@@ -1,12 +1,20 @@
 # Tasks — 2026-09-06 check 分支:官方 compat 路径验证
 
 ## Phase 1: 材料补齐(check 分支,均 ≤5 分钟)
-- [ ] task_1: 更新 check/settings-route.example.yaml——加入
+- [x] task_1: 更新 check/settings-route.example.yaml——加入
       `thinkingFormat: qwen` 与 `chatTemplateKwargs: { enable_thinking: "true" }`
       注释示例(qwen-chat-template 变体),标注 rc.8 起可用
-- [ ] task_2: record-proxy.mjs 增加 `<think>` 内联检测:assistant content 含
+- [x] task_2: record-proxy.mjs 增加 `<think>` 内联检测:assistant content 含
       `<think>` 标签时在汇总中单独计数(缺口候选 1 的证据)
-- [ ] task_3: CHECK.md 增补"五项职责对照表"与 4/5 两缺口判据
+- [x] task_3: CHECK.md 增补"五项职责对照表"与 4/5 两缺口判据
+
+## Phase 1.5: 短路开关原位替换(用户裁定,已完成)
+- [x] task_1.5a: takeover-sync.ts——`nextTakeoverSection`/`TakeoverSection` 删除,
+      新增 `withDeveloperRoleDisabled`(route 级写官方 flag,显式值尊重,
+      身份比较幂等,immutable clone);`declaresThinking` 补 modelOverrides 扫描
+- [x] task_1.5b: index.ts 写桥改写官方 llm-pi-ai 域(effort host 模式:
+      read → transform → `update('llm-pi-ai',{providers})`),门控读桥保留
+- [x] task_1.5c: 测试更新,tsc + vitest 64 全绿
 
 ## Phase 2: A/B 实测(人工,dsh ≥ v0.1.0-rc.8)
 - [ ] task_4: 起代理,基线 A(插件接管)跑一轮多步推理会话,存 requests.jsonl

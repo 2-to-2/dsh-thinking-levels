@@ -3,10 +3,9 @@ import {
   declaresThinking,
   identifyTakeoverProviders,
   isCustomOpenAiGateway,
-  nextTakeoverSection,
   takeoverProvidersOf,
+  withDeveloperRoleDisabled,
   type PiAiSection,
-  type TakeoverSection,
 } from '../src/takeover-sync.ts'
 
 const customThinkingProvider = {
@@ -75,26 +74,84 @@ describe('identifyTakeoverProviders', () => {
   })
 })
 
-describe('nextTakeoverSection', () => {
-  const base: TakeoverSection = { enabled: false, providers: [] }
-
-  it('enables and appends identified providers', () => {
-    expect(nextTakeoverSection(base, ['local35b'])).toEqual({ enabled: true, providers: ['local35b'] })
+describe('withDeveloperRoleDisabled', () => {
+  it('writes the official flag at route level for identified providers', () => {
+    const section: PiAiSection = { providers: { ...customThinkingProvider } }
+    const next = withDeveloperRoleDisabled(section)!
+    expect(next.providers?.local35b?.compat).toEqual({ supportsDeveloperRole: false })
+    // other profile fields survive
+    expect(next.providers?.local35b?.baseURL).toBe('http://192.168.100.242:8200/v1')
+    expect(next.providers?.local35b?.models).toEqual(customThinkingProvider.local35b.models)
   })
 
-  it('merges with an existing manual list without duplication', () => {
-    const prev: TakeoverSection = { enabled: true, providers: ['manual'] }
-    expect(nextTakeoverSection(prev, ['local35b', 'local35b']))
-      .toEqual({ enabled: true, providers: ['manual', 'local35b'] })
+  it('leaves non-identified providers untouched and preserves section identity for them', () => {
+    const section: PiAiSection = {
+      providers: {
+        ...customThinkingProvider,
+        official: { baseURL: 'https://api.deepseek.com/v1', models: [{ id: 'm', reasoningEfforts: { high: 'high' } }] },
+      },
+    }
+    const next = withDeveloperRoleDisabled(section)!
+    expect(next.providers?.official).toBe(section.providers?.official)
+    expect(next.providers?.official?.compat).toBeUndefined()
   })
 
-  it('returns the previous section unchanged when nothing is identified', () => {
-    expect(nextTakeoverSection(base, [])).toBe(base)
+  it('respects an explicit route-level value (true or false) and is identity then', () => {
+    const explicitTrue: PiAiSection = {
+      providers: { local35b: { ...customThinkingProvider.local35b, compat: { supportsDeveloperRole: true } } },
+    }
+    expect(withDeveloperRoleDisabled(explicitTrue)).toBe(explicitTrue)
+    const explicitFalse: PiAiSection = {
+      providers: { local35b: { ...customThinkingProvider.local35b, compat: { supportsDeveloperRole: false } } },
+    }
+    expect(withDeveloperRoleDisabled(explicitFalse)).toBe(explicitFalse)
   })
 
-  it('returns the previous section unchanged when already covered', () => {
-    const prev: TakeoverSection = { enabled: true, providers: ['local35b'] }
-    expect(nextTakeoverSection(prev, ['local35b'])).toBe(prev)
+  it('merges into an existing compat object without clobbering siblings', () => {
+    const section: PiAiSection = {
+      providers: { local35b: { ...customThinkingProvider.local35b, compat: { maxTokensField: 'max_tokens' } } },
+    }
+    const next = withDeveloperRoleDisabled(section)!
+    expect(next.providers?.local35b?.compat).toEqual({ maxTokensField: 'max_tokens', supportsDeveloperRole: false })
+  })
+
+  it('never touches model rows (models[] and modelOverrides) — inheritance keeps them authoritative', () => {
+    const section: PiAiSection = {
+      providers: {
+        local35b: {
+          ...customThinkingProvider.local35b,
+          models: [{ id: 'Qwen3.6-35B-A3B', reasoningEfforts: { off: null, high: 'high' }, compat: { supportsDeveloperRole: true } }],
+          modelOverrides: { other: { compat: { supportsDeveloperRole: true } } },
+        },
+      },
+    }
+    const next = withDeveloperRoleDisabled(section)!
+    const rows = next.providers?.local35b?.models as Array<Record<string, unknown>>
+    expect(rows[0]?.compat).toEqual({ supportsDeveloperRole: true })
+    expect((next.providers?.local35b?.modelOverrides as Record<string, { compat: unknown }>).other.compat)
+      .toEqual({ supportsDeveloperRole: true })
+    // route level still filled
+    expect(next.providers?.local35b?.compat).toEqual({ supportsDeveloperRole: false })
+  })
+
+  it('scans modelOverrides for thinking declaration (models[]-absent routes)', () => {
+    const section: PiAiSection = {
+      providers: {
+        overridesOnly: {
+          api: 'openai-completions',
+          baseURL: 'http://z/v1',
+          modelOverrides: { m: { reasoningEfforts: { high: 'high' } } },
+        },
+      },
+    }
+    const next = withDeveloperRoleDisabled(section)!
+    expect(next.providers?.overridesOnly?.compat).toEqual({ supportsDeveloperRole: false })
+  })
+
+  it('returns the previous section (identity) when nothing to write', () => {
+    const empty: PiAiSection = { providers: {} }
+    expect(withDeveloperRoleDisabled(empty)).toBe(empty)
+    expect(withDeveloperRoleDisabled(undefined)).toBeUndefined()
   })
 })
 
