@@ -68,6 +68,10 @@ node check/record-proxy.mjs --upstream https://你的网关/v1 --port 8787
    - `compat.supportsDeveloperRole: false`(必需)
    - 模型 `reasoningEfforts` 映射 + 按需 `compat.thinkingFormat: deepseek`
    - provider `baseURL` 仍指向录制代理
+   - 配置可手写 yaml,也可用 hytime/dsh-thinking-effort 的 compat 卡片代写——
+     它是官方 compat 面的纯控制面 UI(值直接写入官方 `llm-pi-ai` 命名空间,
+     继承链与手写 yaml 同构,不实现/替代 transport),两者结果等价;但
+     缺口候选 1/2 的数据面判据不受它影响,照常实测
 3. 重跑同一轮会话(新建会话,避免历史图片/消息残留影响请求形状)。
 
 ### 3. 判据(全部满足才算通过)
