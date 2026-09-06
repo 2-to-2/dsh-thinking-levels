@@ -37,9 +37,11 @@ function analyze(body) {
   const developer = roles.filter((r) => r === 'developer').length;
   const effort = parsed?.reasoning_effort ?? null;
   const thinking = parsed?.thinking ?? null;
+  const enableThinking = 'enable_thinking' in parsed ? parsed.enable_thinking : null;
+  const chatTemplateKwargs = parsed?.chat_template_kwargs ?? null;
   const hasMaxCompletionTokens = 'max_completion_tokens' in parsed;
   const hasMaxTokens = 'max_tokens' in parsed;
-  return { parse: true, roles, developer, effort, thinking, hasMaxTokens, hasMaxCompletionTokens };
+  return { parse: true, roles, developer, effort, thinking, enableThinking, chatTemplateKwargs, hasMaxTokens, hasMaxCompletionTokens };
 }
 
 const server = http.createServer((req, res) => {
@@ -63,7 +65,9 @@ const server = http.createServer((req, res) => {
 
     const status = !a.parse ? '非JSON请求体'
       : a.developer > 0 ? `⚠ developer 角色 x${a.developer}(官方路径下必须为 0)`
-      : `✓ 无 developer 角色` + (a.effort ? `,reasoning_effort=${a.effort}` : ',无 reasoning_effort');
+      : `✓ 无 developer 角色` + (a.effort ? `,reasoning_effort=${a.effort}` : '')
+      + (a.enableThinking !== null ? `,enable_thinking=${a.enableThinking}` : '')
+      + (a.chatTemplateKwargs ? `,chat_template_kwargs=${JSON.stringify(a.chatTemplateKwargs)}` : '');
     console.log(`[#${stats.total}] ${req.method} ${req.url} -> ${status}`);
 
     const upReq = http.request(

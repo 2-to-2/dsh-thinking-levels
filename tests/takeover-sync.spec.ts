@@ -4,7 +4,7 @@ import {
   identifyTakeoverProviders,
   isCustomOpenAiGateway,
   takeoverProvidersOf,
-  withDeveloperRoleDisabled,
+  withOfficialCompatFixes,
   type PiAiSection,
 } from '../src/takeover-sync.ts'
 
@@ -74,14 +74,13 @@ describe('identifyTakeoverProviders', () => {
   })
 })
 
-describe('withDeveloperRoleDisabled', () => {
+describe('withOfficialCompatFixes', () => {
   it('writes the official flag at route level for identified providers', () => {
     const section: PiAiSection = { providers: { ...customThinkingProvider } }
-    const next = withDeveloperRoleDisabled(section)!
+    const next = withOfficialCompatFixes(section)!
     expect(next.providers?.local35b?.compat).toEqual({ supportsDeveloperRole: false })
     // other profile fields survive
     expect(next.providers?.local35b?.baseURL).toBe('http://192.168.100.242:8200/v1')
-    expect(next.providers?.local35b?.models).toEqual(customThinkingProvider.local35b.models)
   })
 
   it('leaves non-identified providers untouched and preserves section identity for them', () => {
@@ -91,47 +90,66 @@ describe('withDeveloperRoleDisabled', () => {
         official: { baseURL: 'https://api.deepseek.com/v1', models: [{ id: 'm', reasoningEfforts: { high: 'high' } }] },
       },
     }
-    const next = withDeveloperRoleDisabled(section)!
+    const next = withOfficialCompatFixes(section)!
     expect(next.providers?.official).toBe(section.providers?.official)
     expect(next.providers?.official?.compat).toBeUndefined()
   })
 
-  it('respects an explicit route-level value (true or false) and is identity then', () => {
+  it('respects an explicit route-level value (true or false) — model fixes still apply', () => {
     const explicitTrue: PiAiSection = {
       providers: { local35b: { ...customThinkingProvider.local35b, compat: { supportsDeveloperRole: true } } },
     }
-    expect(withDeveloperRoleDisabled(explicitTrue)).toBe(explicitTrue)
-    const explicitFalse: PiAiSection = {
-      providers: { local35b: { ...customThinkingProvider.local35b, compat: { supportsDeveloperRole: false } } },
-    }
-    expect(withDeveloperRoleDisabled(explicitFalse)).toBe(explicitFalse)
+    const next = withOfficialCompatFixes(explicitTrue)!
+    // route-level explicit value is never overwritten...
+    expect(((next.providers?.local35b?.compat ?? {}) as Record<string, unknown>)['supportsDeveloperRole']).toBe(true)
+    // ...but the model-level toggle fix is a different concern and still applies
+    const rows = next.providers?.local35b?.models as Array<Record<string, unknown>>
+    expect(rows[0]?.compat).toEqual({ thinkingFormat: 'qwen' })
   })
 
   it('merges into an existing compat object without clobbering siblings', () => {
     const section: PiAiSection = {
       providers: { local35b: { ...customThinkingProvider.local35b, compat: { maxTokensField: 'max_tokens' } } },
     }
-    const next = withDeveloperRoleDisabled(section)!
+    const next = withOfficialCompatFixes(section)!
     expect(next.providers?.local35b?.compat).toEqual({ maxTokensField: 'max_tokens', supportsDeveloperRole: false })
   })
 
-  it('never touches model rows (models[] and modelOverrides) — inheritance keeps them authoritative', () => {
+  it('fills thinkingFormat qwen on toggle-style rows while effort-capable and explicit-format rows stay untouched', () => {
     const section: PiAiSection = {
       providers: {
         local35b: {
           ...customThinkingProvider.local35b,
-          models: [{ id: 'Qwen3.6-35B-A3B', reasoningEfforts: { off: null, high: 'high' }, compat: { supportsDeveloperRole: true } }],
-          modelOverrides: { other: { compat: { supportsDeveloperRole: true } } },
+          models: [
+            // toggle-style: thinking table, no supportsReasoningEffort → qwen
+            { id: 'toggle-model', reasoningEfforts: { off: null, high: 'high' } },
+            // effort-capable: reasoning_effort wire — format untouched
+            { id: 'effort-model', reasoningEfforts: { off: null, high: 'high' }, compat: { supportsReasoningEffort: true } },
+            // explicit format: respected, never clobbered
+            { id: 'explicit-format', reasoningEfforts: { off: null, high: 'high' }, compat: { thinkingFormat: 'qwen-chat-template' } },
+          ],
         },
       },
     }
-    const next = withDeveloperRoleDisabled(section)!
+    const next = withOfficialCompatFixes(section)!
     const rows = next.providers?.local35b?.models as Array<Record<string, unknown>>
-    expect(rows[0]?.compat).toEqual({ supportsDeveloperRole: true })
-    expect((next.providers?.local35b?.modelOverrides as Record<string, { compat: unknown }>).other.compat)
-      .toEqual({ supportsDeveloperRole: true })
-    // route level still filled
-    expect(next.providers?.local35b?.compat).toEqual({ supportsDeveloperRole: false })
+    expect(rows[0]?.compat).toEqual({ thinkingFormat: 'qwen' })
+    expect(rows[1]?.compat).toEqual({ supportsReasoningEffort: true })
+    expect(rows[2]?.compat).toEqual({ thinkingFormat: 'qwen-chat-template' })
+  })
+
+  it('merges the toggle fix into an existing model compat without clobbering siblings', () => {
+    const section: PiAiSection = {
+      providers: {
+        local35b: {
+          ...customThinkingProvider.local35b,
+          models: [{ id: 'm', reasoningEfforts: { off: null, high: 'high' }, compat: { supportsDeveloperRole: false } }],
+        },
+      },
+    }
+    const next = withOfficialCompatFixes(section)!
+    const rows = next.providers?.local35b?.models as Array<Record<string, unknown>>
+    expect(rows[0]?.compat).toEqual({ supportsDeveloperRole: false, thinkingFormat: 'qwen' })
   })
 
   it('scans modelOverrides for thinking declaration (models[]-absent routes)', () => {
@@ -144,14 +162,14 @@ describe('withDeveloperRoleDisabled', () => {
         },
       },
     }
-    const next = withDeveloperRoleDisabled(section)!
+    const next = withOfficialCompatFixes(section)!
     expect(next.providers?.overridesOnly?.compat).toEqual({ supportsDeveloperRole: false })
   })
 
   it('returns the previous section (identity) when nothing to write', () => {
     const empty: PiAiSection = { providers: {} }
-    expect(withDeveloperRoleDisabled(empty)).toBe(empty)
-    expect(withDeveloperRoleDisabled(undefined)).toBeUndefined()
+    expect(withOfficialCompatFixes(empty)).toBe(empty)
+    expect(withOfficialCompatFixes(undefined)).toBeUndefined()
   })
 })
 

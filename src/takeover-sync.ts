@@ -41,6 +41,7 @@ export const TAKEOVER_NAMESPACE = 'llm-openai-completions'
 export interface PiAiModelRow {
   id?: unknown
   reasoningEfforts?: unknown
+  compat?: unknown
 }
 
 /** One provider profile of the llm-pi-ai section (minimal face). */
@@ -125,25 +126,68 @@ export function identifyTakeoverProviders(section: PiAiSection | undefined): str
     .map(([id]) => id)
 }
 
+/** A row's own `compat` record, when it declares one. */
+function ownCompat(row: PiAiModelRow): Record<string, unknown> | undefined {
+  return typeof row.compat === 'object' && row.compat !== null && !Array.isArray(row.compat)
+    ? row.compat as Record<string, unknown>
+    : undefined
+}
+
+/** Whether the ROW ITSELF declares `supportsReasoningEffort: true` (route-level does not count here). */
+function rowEffortCapable(row: PiAiModelRow): boolean {
+  return ownCompat(row)?.['supportsReasoningEffort'] === true
+}
+
+/** The row's own `thinkingFormat`, when explicitly declared. */
+function rowThinkingFormat(row: PiAiModelRow): unknown {
+  return ownCompat(row)?.['thinkingFormat']
+}
+
 /**
- * Compute the llm-pi-ai section with the official
- * `compat.supportsDeveloperRole: false` flag written at the ROUTE level for
+ * Rewrite one model row's compat for the toggle-thinking fix. Returns the row
+ * by reference when nothing to change.
+ */
+function withToggleThinkingFormat(row: PiAiModelRow): PiAiModelRow {
+  // Only TOGGLE-STYLE thinking models (a reasoningEfforts table but no
+  // row-level effort support) need `thinkingFormat: qwen`: pi-ai's default
+  // `openai` format sends reasoning_effort — which an early vLLM thinking
+  // model rejects or ignores — instead of the enable_thinking flag the model
+  // actually needs to open up deep thinking. An explicit thinkingFormat is
+  // respected and never clobbered.
+  if (!isEffortsTable(row.reasoningEfforts)) return row
+  if (rowEffortCapable(row)) return row
+  if (rowThinkingFormat(row) !== undefined) return row
+  return { ...row, compat: { ...ownCompat(row), thinkingFormat: 'qwen' } }
+}
+
+/**
+ * Compute the llm-pi-ai section with the OFFICIAL compat fixes written for
  * every identified provider (custom openai-completions gateway AND thinking
- * declared) that does not already carry an explicit flag value.
+ * declared):
+ *
+ * 1. ROUTE level: `compat.supportsDeveloperRole: false` when the route does
+ *    not carry an explicit value — the system prompt goes out as `system`
+ *    (fixes the Unexpected message role 400 on vLLM/SGLang gateways).
+ * 2. MODEL level: `compat.thinkingFormat: 'qwen'` on TOGGLE-STYLE thinking
+ *    model rows (a reasoningEfforts table, no row-level
+ *    `supportsReasoningEffort: true`, no explicit thinkingFormat) — pi-ai
+ *    then sends the `enable_thinking` flag these early vLLM thinking models
+ *    need, instead of a reasoning_effort they do not support. Effort-capable
+ *    rows are untouched (their reasoning_effort wire needs the default/openai
+ *    or declared format), and the route level is deliberately NOT written —
+ *    a route-wide thinkingFormat would flip effort models onto
+ *    enable_thinking too.
  *
  * Semantics (learned from dsh-thinking-effort's storage handling):
- * - Only the route-level `providers.<route>.compat` is written; model rows
- *   (models[] / modelOverrides) are never touched — the official inheritance
- *   chain keeps a model-level explicit value authoritative.
- * - An EXPLICIT value (true or false) on any layer is respected and left
- *   alone; only an ABSENT route-level flag is filled with `false`. This keeps
- *   the sync idempotent and never overrides user intent.
- * - Immutable: unchanged profiles and the unchanged section are returned by
- *   reference, so the host can skip the write on identity.
+ * - An EXPLICIT value on any layer is respected and left alone; only ABSENT
+ *   fields are filled. This keeps the sync idempotent and never overrides
+ *   user intent.
+ * - Immutable: unchanged profiles/rows and the unchanged section are returned
+ *   by reference, so the host can skip the write on identity.
  * @param section - the live llm-pi-ai section.
  * @returns the next section, or the previous value (identity) when no change.
  */
-export function withDeveloperRoleDisabled(
+export function withOfficialCompatFixes(
   section: PiAiSection | undefined,
 ): PiAiSection | undefined {
   const providers = section?.providers
@@ -151,12 +195,43 @@ export function withDeveloperRoleDisabled(
   let nextProviders: Record<string, PiAiProviderProfile> | undefined
   for (const [id, profile] of Object.entries(providers)) {
     if (!isCustomOpenAiGateway(profile) || !declaresThinking(profile)) continue
-    const explicit = (profile.compat as Record<string, unknown> | undefined)?.['supportsDeveloperRole']
-    if (explicit !== undefined) continue
-    nextProviders ??= { ...providers }
-    nextProviders[id] = {
-      ...profile,
-      compat: { ...(typeof profile.compat === 'object' && profile.compat !== null ? profile.compat as Record<string, unknown> : {}), supportsDeveloperRole: false },
+    let nextProfile: PiAiProviderProfile = profile
+    // Route-level developer-role flag (absent only).
+    if ((profile.compat as Record<string, unknown> | undefined)?.['supportsDeveloperRole'] === undefined) {
+      nextProfile = {
+        ...nextProfile,
+        compat: { ...(typeof nextProfile.compat === 'object' && nextProfile.compat !== null ? nextProfile.compat as Record<string, unknown> : {}), supportsDeveloperRole: false },
+      }
+    }
+    // Model-level toggle-thinking format (models[] rows).
+    if (Array.isArray(profile.models)) {
+      let nextModels: PiAiModelRow[] | undefined
+      profile.models.forEach((row, index) => {
+        if (typeof row !== 'object' || row === null) return
+        const fixed = withToggleThinkingFormat(row as PiAiModelRow)
+        if (fixed !== row) {
+          nextModels ??= [...profile.models as PiAiModelRow[]]
+          nextModels[index] = fixed
+        }
+      })
+      if (nextModels !== undefined) nextProfile = { ...nextProfile, models: nextModels }
+    }
+    // Model-level toggle-thinking format (modelOverrides entries).
+    if (typeof profile.modelOverrides === 'object' && profile.modelOverrides !== null && !Array.isArray(profile.modelOverrides)) {
+      let nextOverrides: Record<string, PiAiModelRow> | undefined
+      for (const [modelId, row] of Object.entries(profile.modelOverrides as Record<string, PiAiModelRow>)) {
+        if (typeof row !== 'object' || row === null) continue
+        const fixed = withToggleThinkingFormat(row)
+        if (fixed !== row) {
+          nextOverrides ??= { ...(profile.modelOverrides as Record<string, PiAiModelRow>) }
+          nextOverrides[modelId] = fixed
+        }
+      }
+      if (nextOverrides !== undefined) nextProfile = { ...nextProfile, modelOverrides: nextOverrides }
+    }
+    if (nextProfile !== profile) {
+      nextProviders ??= { ...providers }
+      nextProviders[id] = nextProfile
     }
   }
   return nextProviders === undefined ? section : { ...section, providers: nextProviders }

@@ -443,6 +443,15 @@ function ModelCapabilities(props: {
         row['reasoningEfforts'] = effortCapable
           ? effortTableOf({ high: 'high' })
           : { off: null, high: 'high' }
+        // Toggle-style thinking models need the official qwen format so pi-ai
+        // sends enable_thinking (early vLLM thinking models return no thinking
+        // content without that flag, and reject reasoning_effort). Only fills
+        // an absent format — an explicit choice is never clobbered.
+        if (!effortCapable) {
+          patchCompat(row, (compat) => {
+            if (compat['thinkingFormat'] === undefined) compat['thinkingFormat'] = 'qwen'
+          })
+        }
       } else {
         // Thinking off: a non-reasoning model never takes an effort.
         row['reasoningEfforts'] = false
@@ -455,6 +464,10 @@ function ModelCapabilities(props: {
     patchModel(entry.providerId, entry.index, (row) => {
       patchCompat(row, (compat) => {
         compat['supportsReasoningEffort'] = next
+        // Counterpart of the auto-fill in toggleThinking: effort-capable rows
+        // need reasoning_effort on the wire, so drop the toggle-style qwen
+        // format when effort turns on (it would drive enable_thinking instead).
+        if (next && compat['thinkingFormat'] === 'qwen') delete compat['thinkingFormat']
       })
     })
   }

@@ -36,7 +36,7 @@ import {
   PI_AI_NAMESPACE,
   TAKEOVER_NAMESPACE,
   takeoverProvidersOf,
-  withDeveloperRoleDisabled,
+  withOfficialCompatFixes,
   type PiAiSection,
 } from './takeover-sync.ts'
 
@@ -399,14 +399,16 @@ export function apply(ctx: Context, config: ThinkingLevelsConfig = DEFAULT_CONFI
     onChange: () => {},
   })
 
-  // Official-compat bridge (check branch): write the OFFICIAL
-  // `compat.supportsDeveloperRole: false` flag into the llm-pi-ai namespace for
-  // every provider that targets a custom openai-completions gateway AND
-  // declares thinking (reasoningEfforts table). This replaces the retired
-  // short-circuit route (maintaining the dsh-llm-openai-completions takeover
-  // list): since dsh v0.1.0-rc.8 the declarative flag fixes the developer-role
-  // 400 at the pi-ai adapter itself, so pi-ai keeps serving the route and no
-  // transport takeover is needed. Storage pattern follows
+  // Official-compat bridge (check branch): write the OFFICIAL compat surface
+  // into the llm-pi-ai namespace for every provider that targets a custom
+  // openai-completions gateway AND declares thinking (reasoningEfforts table):
+  // route-level `supportsDeveloperRole: false` plus model-level
+  // `thinkingFormat: qwen` on toggle-style thinking rows. This replaces the
+  // retired short-circuit route (maintaining the dsh-llm-openai-completions
+  // takeover list): since dsh v0.1.0-rc.8 the declarative compat fixes the
+  // developer-role 400 AND drives enable_thinking at the pi-ai adapter itself,
+  // so pi-ai keeps serving the route and no transport takeover is needed.
+  // Storage pattern follows
   // hytime/dsh-thinking-effort's host side: read → pure transform (identity
   // when nothing to change) → whole-section update, so dsh's llm-pi-ai schema
   // validator gates the write where it is WRITTEN; an installed dsh predating
@@ -421,11 +423,11 @@ export function apply(ctx: Context, config: ThinkingLevelsConfig = DEFAULT_CONFI
         update?: (ns: string, patch: unknown) => Promise<unknown>
       } | undefined
       const piAi = settings?.get?.(PI_AI_NAMESPACE) as PiAiSection | undefined
-      const next = withDeveloperRoleDisabled(piAi)
+      const next = withOfficialCompatFixes(piAi)
       if (next === undefined || next === piAi) return
       await settings?.update?.(PI_AI_NAMESPACE, { providers: next.providers })
       ctx.logger?.info?.(
-        '[thinking-levels] official-compat: supportsDeveloperRole=false written to llm-pi-ai for custom thinking routes (short-circuit bridge retired)',
+        '[thinking-levels] official-compat: supportsDeveloperRole=false (route) and thinkingFormat=qwen (toggle-style models) written to llm-pi-ai for custom thinking routes',
       )
     }).catch((error) => {
       ctx.logger?.warn?.('[thinking-levels] developer-role compat sync rejected (schema gate); kept previous section', error)
