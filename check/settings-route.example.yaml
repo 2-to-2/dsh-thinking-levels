@@ -1,0 +1,22 @@
+# 官方 compat 路径模板(无插件边路)——dsh >= v0.1.0-rc.8
+# 来源:deepseek-harness docs/user/guide/providers.zh.md(自定义提供方一节)
+# 用法:并入你 settings.yaml 的 providers 段;baseURL 先指向录制代理做验证。
+providers:
+  - id: my-gateway
+    baseURL: http://127.0.0.1:8787/v1   # 验证期走录制代理;通过后改回真实网关
+    # api: openai-completions           # 按你现有路由保留
+    compat:
+      supportsDeveloperRole: false      # 关键:系统提示词按 system 角色发送(必须显式写,默认值反转提案未落地)
+      # maxTokensField: max_tokens      # 网关不认 max_completion_tokens 时打开
+    models:
+      - id: my-model
+        # 思考档位:键为选择器菜单等级,值为线上实际发送的 reasoning_effort 词汇;
+        # off 留空 = 不发送。两侧都未声明的字段沿用 catalog,再落到 pi-ai 检测。
+        reasoningEfforts:
+          off:
+          low: low
+          high: ultra          # 示例:网关自有词汇
+          max: max
+        # 对"不明确关闭就思考"的端点(如 OpenAI 兼容网关后的 DeepSeek V4):
+        # compat:
+        #   thinkingFormat: deepseek   # off 发送 thinking:{type:disabled},其余档位附带 thinking:{type:enabled}
