@@ -6,9 +6,18 @@ All notable changes to `dsh-thinking-levels` are documented here.
 - [日本語 changelog](./CHANGELOG.ja.md)
 - [한국어 changelog](./CHANGELOG.ko.md)
 
-## [0.7.0-beta.1] — 2026-09-06
+## [0.7.0] — 2026-09-09
 
-> **Beta: the short-circuit route is retired.** This release no longer depends on `dsh-llm-openai-completions` (or any transport-takeover side path). All gateway fixes ride the OFFICIAL `llm-pi-ai` compat surface, available since **dsh v0.1.0-rc.8** (commit `884f7b9c41`).
+> **Stable release.** The short-circuit route is retired; all gateway fixes now ride the official `llm-pi-ai` compat surface (dsh ≥ **v0.1.0-rc.8**). This version also includes the context-window presets from the earlier 0.7.0 draft.
+
+### Added
+
+- **Multi-level context-window presets** in the per-model capability editor: `64K / 128K / 256K / 400K / 512K / 1M` preset buttons plus a custom integer input and clear button, written to the `llm-pi-ai` model `contextWindow` and consumed live by the harness (compaction / context-overflow detection / context-pressure projections) on the next request — no restart needed.
+- New pure module `src/context-window.ts` (range constants `2000`–`1_000_000`, preset list, `formatContextWindow`, `validateContextWindow`) shared by the config schema, the settings card and the tests.
+- Config surface: `models[].contextWindow` override accepted with integer `2000`–`1000000` validation (fail-loud on out-of-band values).
+- New `zh` / `en` / `ja` / `ko` copy for the context-window control.
+- Added `dsh.plugin.json` with `engines.dsh: ">=0.1.0-rc.8"`.
+- Added `peerDependencies` for `dsh-client-runtime`, `dsh-client-locale`, `dsh-client-ui-settings`, `dsh-client-ui-slots` (all optional).
 
 ### Removed
 
@@ -23,25 +32,13 @@ All notable changes to `dsh-thinking-levels` are documented here.
 - **Capability card de-short-circuited**: the "short-circuit takeover" switch is replaced by a per-provider **"gateway rejects the developer role"** switch (writes/clears the route-level flag; unchecking restores inheritance). The takeover-list gating is gone — every llm-pi-ai provider's models are directly editable, in progressive layers: ① thinking + vision → ② effort support (thinking models only) → ③ effort wire editor → ④ thinkingFormat → ⑤ context window. Toggling thinking on a toggle-style model auto-fills `thinkingFormat: 'qwen-chat-template'` (only when absent); enabling effort removes it again.
 - `declaresThinking` now also scans `modelOverrides` (previously only `models[]`), so modelOverrides-only routes are identified and fixed too.
 - The adapter-posture read gate (`takeoverOf` / `piAiPosture`) is kept but inert: with the adapter absent it yields native pi-ai semantics.
+- The context badge now reuses the shared `formatContextWindow` so written presets display exactly (e.g. `256000` → `256K`, `1000000` → `1M`).
 
 ### Notes
 
 - Requires dsh ≥ **v0.1.0-rc.8** for the official compat surface. On older dsh the schema refuses the compat fields (fail-loud, no silent misconfiguration).
 - Response-side inline `<think>` splitting remains a gateway concern: bare vLLM needs `--reasoning-parser qwen3`; pi-ai (≤ 0.85.1) parses only `reasoning_content` / `reasoning` / `reasoning_text`. `qwen-chat-template` does not carry `reasoning_effort` (the format branches are mutually exclusive) — effort levels drive `enable_thinking` on/off only. True parallel (chat_template_kwargs + reasoning_effort) needs an upstream pi-ai change.
 - Verification materials live on the `check` branch (`check/CHECK.md`, `check/record-proxy.mjs`, `check/settings-route.example.yaml`); they are not part of the npm package.
-
-## [0.7.0] — 2026-08-30
-
-### Added
-
-- **Multi-level context-window presets** in the per-model capability editor: `64K / 128K / 256K / 400K / 512K / 1M` preset buttons plus a custom integer input and clear button, written to the `llm-pi-ai` model `contextWindow` and consumed live by the harness (compaction / context-overflow detection / context-pressure projections) on the next request — no restart needed.
-- New pure module `src/context-window.ts` (range constants `2000`–`1_000_000`, preset list, `formatContextWindow`, `validateContextWindow`) shared by the config schema, the settings card and the tests.
-- Config surface: `models[].contextWindow` override accepted with integer `2000`–`1000000` validation (fail-loud on out-of-band values).
-- New `zh` / `en` / `ja` / `ko` copy for the context-window control.
-
-### Changed
-
-- The context badge now reuses the shared `formatContextWindow` so written presets display exactly (e.g. `256000` → `256K`, `1000000` → `1M`).
 
 ## [0.6.0] — 2026-02-?
 

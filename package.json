@@ -1,6 +1,6 @@
 {
   "name": "dsh-thinking-levels",
-  "version": "0.7.0-beta.1",
+  "version": "0.7.0",
   "description": "DSH host plugin: thinking-level (reasoning_effort) control for dsh — auto-adjust per tool round, with optional manual lock and per-tool timing telemetry.",
   "repository": {
     "type": "git",
@@ -10,6 +10,7 @@
   "files": [
     "lib",
     "cordis.patch.yml",
+    "dsh.plugin.json",
     "README.md",
     "README.zh.md",
     "README.ja.md",
@@ -39,10 +40,21 @@
     "./package.json": "./package.json"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20",
+    "dsh": ">=0.1.0-rc.8"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1"
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-client-runtime": ">=0.1.0-rc.5 <0.2.0-0",
+    "@deepseek-ai/dsh-client-locale": ">=0.1.0-rc.5 <0.2.0-0",
+    "@deepseek-ai/dsh-client-ui-settings": ">=0.1.0-rc.5 <0.2.0-0",
+    "@deepseek-ai/dsh-client-ui-slots": ">=0.1.0-rc.5 <0.2.0-0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-client-runtime": { "optional": true },
+    "@deepseek-ai/dsh-client-locale": { "optional": true },
+    "@deepseek-ai/dsh-client-ui-settings": { "optional": true },
+    "@deepseek-ai/dsh-client-ui-slots": { "optional": true }
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.0"
