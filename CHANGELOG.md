@@ -6,6 +6,23 @@ All notable changes to `dsh-thinking-levels` are documented here.
 - [日本語 changelog](./CHANGELOG.ja.md)
 - [한국어 changelog](./CHANGELOG.ko.md)
 
+## [Unreleased]
+
+### Removed
+
+- **Dead `agent/tool` listener.** The per-tool wall-clock telemetry registered a
+  `ctx.on('agent/tool', …)` handler that kept a `started` map and logged
+  `tool … took …ms`. DSH has no such event in either 0.1.1-rc.2 or 0.1.2-rc.1 — the
+  scope-event registry (`packages/core/scope/src/scoped-events.generated.ts`) lists twelve
+  `agent/*` events and `agent/tool` is not one of them — so the handler never ran and the
+  log line was never emitted. Removed the listener, its `started` map, the `pruneStale`
+  sweep and the `TOOL_AGE_LIMIT_MS` constant.
+- **The effort scheduler is unaffected.** Tool recognition is a *pull*, not a push: the
+  `agent/request` waterfall calls `recentToolCalls(payload.agent)`, which reads the
+  `tool/call` records out of `agent.session.events` and feeds `scheduleEffort`. That path
+  has its own tests (`tests/session-events.spec.ts`, `tests/thinking-level.spec.ts`) and
+  was untouched.
+
 ## [0.7.0] — 2026-09-09
 
 > **Stable release.** The short-circuit route is retired; all gateway fixes now ride the official `llm-pi-ai` compat surface (dsh ≥ **v0.1.0-rc.8**). This version also includes the context-window presets from the earlier 0.7.0 draft.

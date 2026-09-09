@@ -23,7 +23,12 @@
  * - `agent/request` waterfall (packages/core/agent-loop/src/agent.ts
  *   buildRequest): each listener may return a modified GenerateOptions for
  *   the next listener — the sanctioned way to adjust request config.
- * - `session.events` (agent.session) carries the step's tool/call records.
+ * - `session.events` (agent.session) carries the step's tool/call records; the
+ *   auto scheduler PULLS the recent calls from there at request time
+ *   (`recentToolCalls`). There is no `agent/tool` push event in DSH — the
+ *   scope-event registry (`packages/core/scope/src/scoped-events.generated.ts`)
+ *   lists no such name in 0.1.1-rc.2 or 0.1.2-rc.1, so tool recognition must
+ *   stay a pull from `session.events`.
  * - settings service namespace (like DSH-better-sidebar's PrefsSchema) for
  *   the user toggles.
  */
@@ -159,8 +164,6 @@ function installSettingsSection<T>(
     scope.watch(() => hooks.onChange())
   })
 }
-
-const TOOL_AGE_LIMIT_MS = 10 * 60 * 1000
 
 /**
  * The `auto` mask shown in the model directory: a user-facing level that is
@@ -529,32 +532,5 @@ export function apply(ctx: Context, config: ThinkingLevelsConfig = DEFAULT_CONFI
       overrideFor,
       piAiFor,
     )
-  })
-
-  // Per-tool wall-clock telemetry: log tool/call -> tool/result durations.
-  // Same boundary widening as above (agent/tool is a generated scope event).
-  const started = new Map<string, number>()
-  // A tool that never emits `end` (crash, interruption) must not leak its
-  // entry forever; sweep stale ones lazily on every new `start`.
-  const pruneStale = (now: number): void => {
-    for (const [callId, at] of started) {
-      if (now - at > TOOL_AGE_LIMIT_MS) started.delete(callId)
-    }
-  }
-  on('agent/tool', async (payload) => {
-    const callId = payload.callId
-    if (typeof callId !== 'string') return
-    if (payload.phase === 'start') {
-      const now = Date.now()
-      pruneStale(now)
-      started.set(callId, now)
-    } else if (payload.phase === 'end') {
-      const from = started.get(callId)
-      started.delete(callId)
-      if (from !== undefined) {
-        const ms = Date.now() - from
-        ctx.logger?.info?.('[thinking-levels] tool %s took %dms', callId, ms)
-      }
-    }
   })
 }
