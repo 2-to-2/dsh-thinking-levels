@@ -8,6 +8,17 @@ All notable changes to `dsh-thinking-levels` are documented here.
 
 ## [Unreleased]
 
+### Changed — compat line narrowed to DSH < 0.1.2-alpha.1 — 0.7.1-beta.3
+
+- **`engines.dsh` gained an upper bound**: `>=0.1.0-rc.8` → `>=0.1.0-rc.8 <0.1.2-alpha.1`.
+  The open-ended range claimed every later release, but `@deepseek-ai/dsh-client-runtime`
+  was deleted wholesale in DSH `0.1.2-alpha.1` (commit `be531688f3`) and this line still
+  imports `ClientContext` from it. The bound now blocks a wrong install.
+- **Two npm lines, never overwriting each other.** `compat` = this line (DSH 0.1.0/0.1.1);
+  `beta` = the 0.1.2+ line from `0.7.2` onward, which takes `Context` from
+  `@deepseek-ai/cordis`. Moving to DSH 0.1.2+ means switching tags, not upgrading in place.
+- **No code change.** Only engines, version and docs differ from `0.7.1-beta.2`.
+
 ### Removed
 
 - **Dead `agent/tool` listener.** The per-tool wall-clock telemetry registered a

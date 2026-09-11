@@ -16,6 +16,17 @@
 - [日本語 changelog](./CHANGELOG.ja.md)
 - [한국어 changelog](./CHANGELOG.ko.md)
 
+> **▼ DSH version support — compat line**
+>
+> This release (`0.7.1-beta.x`) supports **DSH < 0.1.2-alpha.1** (the 0.1.0 / 0.1.1 lines) only.
+>
+> | DSH version | Status | Install |
+> | --- | --- | --- |
+> | < 0.1.2-alpha.1 | ✅ Supported (this line) | `npm i dsh-thinking-levels@compat` |
+> | ≥ 0.1.2-alpha.1 | ❌ **Not supported** | Use `npm i dsh-thinking-levels@beta` (0.7.2+) instead |
+>
+> The boundary is `0.1.2-alpha.1`, where DSH removed `@deepseek-ai/dsh-client-runtime`. This line still imports `ClientContext` from it, so it cannot build or run against 0.1.2+; `engines.dsh` is narrowed to `>=0.1.0-rc.8 <0.1.2-alpha.1` to block a wrong install. `compat` is the 0.1.0/0.1.1 line; `beta` is the 0.1.2+ line, which takes `Context` from `@deepseek-ai/cordis`. The two lines never overwrite each other.
+
 > **Compatibility note:** Version `0.6.0` includes Japanese (`ja`) and Korean (`ko`) dictionaries and selector entries, but the current official DSH releases expose only `zh` and `en` through `LocaleRuntime`. On stock DSH, selecting `ja` or `ko` fails with `locale "<id>" is not registered`. These languages will work after official DSH adds the locale IDs. Advanced users can use a DSH fork that updates `packages/client/locale/src/locale-settings.ts` (`LOCALE_IDS`) and `packages/client/locale/src/client/index.ts` (`LOCALES` labels), together with the corresponding core dictionaries and tests, then rebuild and run the forked DSH. Changing this plugin alone cannot extend DSH's global locale list.
 
 In a multi-step tool chain, the model re-thinks before **every** tool call — and that thinking dominates the wall-clock time (a 50-step agent task can spend minutes reasoning between tools). `dsh-thinking-levels` plugs into the `agent/request` waterfall that dsh re-resolves for every step (registered with `prepend` so the session model-selection assembly cannot overwrite its decision) and injects a thinking level into the next model request.
