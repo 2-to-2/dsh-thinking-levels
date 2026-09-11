@@ -1,27 +1,23 @@
 /**
  * Local contract declarations for the @deepseek-ai/* platform surfaces the
  * plugin consumes. The npm publication chain for the harness client packages
- * is incomplete (rc.1 placeholders miss several transitive packages), and the
+ * is incomplete (rc placeholders miss several transitive packages), and the
  * plugin never value-imports them anyway — the browser half talks to cordis
  * services and slot registration only, and the loader module table supplies
  * the real modules at runtime.
  *
- * These declarations mirror the harness sources at the anchors listed in
- * README.md (verified 2026-08-19); drift against a future harness release
- * shows up as a slot-registration or type error at build time.
+ * These declarations mirror the harness sources at the anchors below for the
+ * supported release segment `>=0.1.2-alpha.1 <0.2.0-0` — the segment that
+ * removed `@deepseek-ai/dsh-client-runtime`. Members are declared only where
+ * this plugin reads them, so drift against a future harness release shows up
+ * as a slot-registration or type error at build time instead of in a browser.
+ *
+ * Mirror anchors (verified 2026-09-11 against dsh-v0.1.5-rc.2):
+ * - `packages/client/ui-renderer/src/client/registry.ts:95` — `SlotRegistry`,
+ *   the `slots` service behind this mirror's `SlotsFace`.
+ * - `packages/client/ui-settings/src/client/settings-contract.ts` — `SettingsScope`.
+ * - `packages/client/locale/src/client/index.ts:380` — the `register` overloads.
  */
-
-declare module '@deepseek-ai/dsh-client-runtime/client' {
-  /** The client root context merge the plugin's browser half receives. */
-  export interface ClientContext {
-    effect(cleanup: () => (() => void) | void, label?: string): void
-    on(event: string, listener: (...args: never[]) => unknown, options?: unknown): () => void
-    get<T>(key: string): T | undefined
-    slots: import('@deepseek-ai/dsh-client-ui-slots').SlotsFace
-    locale: import('@deepseek-ai/dsh-client-locale/client').LocaleFace
-    settingsScope: import('@deepseek-ai/dsh-client-ui-settings/client').SettingsScopeFace
-  }
-}
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   /** Slot map entries consumed by this plugin (subset of the harness table). */
@@ -32,7 +28,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * model/effort select): the plugin renders its context-window quick
      * control here. Session-scoped list, one-row height budget.
      */
-    'conversation.input.right': { kind: 'list'; scope: 'session'; owner: object }
+    'conversation.input.right': { kind: 'list'; scope: 'session' }
   }
 
   /** Locale namespaces merged by client plugins. */
@@ -68,17 +64,29 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 declare module '@deepseek-ai/dsh-client-locale/client' {
-  /** Dictionary registration and bound-translate face. */
+  /** Dictionary registration face. Returns the disposer that drops the dictionaries. */
   export interface LocaleFace {
-    register(namespace: string, dictionaries: Record<string, Record<string, string>>): void
-    bind<N extends string>(namespace: N): (key: string, params?: Record<string, unknown>) => string
+    register(namespace: string, dictionaries: Record<string, Record<string, string>>): () => void
   }
 }
 
 declare module '@deepseek-ai/dsh-client-ui-settings/client' {
+  /** Snapshot of one durable namespace scope, as the settings card reads it. */
+  export interface SettingsScopeSnapshot<T> {
+    status: 'loading' | 'ready' | 'unavailable'
+    value: T | undefined
+    /** Composition base layer and raw user layer, exposed for override display. */
+    base: unknown
+    user: unknown
+    /** Write fence: the revision this snapshot was folded at. */
+    revision: number | undefined
+    writable: boolean
+    mode: 'host' | 'memory'
+  }
+
   /** Durable namespace scope owner used by the settings card. */
   export interface SettingsScope<T> {
-    getSnapshot(): { status: 'loading' | 'ready' | 'unavailable'; value: T | undefined; writable: boolean; mode: 'host' | 'memory' }
+    getSnapshot(): SettingsScopeSnapshot<T>
     subscribe(listener: () => void): () => void
     set(field: string, value: unknown): Promise<void>
     unset(field: string): Promise<void>
@@ -86,6 +94,6 @@ declare module '@deepseek-ai/dsh-client-ui-settings/client' {
 
   /** Context merge providing namespace binding. */
   export interface SettingsScopeFace {
-    bind<T>(spec: { namespace: string }): SettingsScope<T>
+    bind<T>(spec: { namespace: string; decode?: (section: unknown) => T | undefined }): SettingsScope<T>
   }
 }

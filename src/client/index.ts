@@ -10,7 +10,7 @@
  * cordis services (`settingsScope`) and slot registration only (client bundle
  * purity).
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { ThinkingLevelsConfig } from '../index.ts'
@@ -29,7 +29,17 @@ export const inject = ['slots', 'locale', 'settingsScope']
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
-  ctx.effect(() => ctx.locale.register(NS, { zh, en, ja, ko }), 'dsh-thinking-levels: dictionaries')
+  // `register(ns, dicts)` is typed to the built-in locale ids (`zh` / `en`
+  // only); the shipped `ja` / `ko` dictionaries go through the single-locale
+  // overload, so they are installed and ready once DSH publishes those ids.
+  ctx.effect(() => {
+    const disposers = [
+      ctx.locale.register(NS, { zh, en }),
+      ctx.locale.register(NS, 'ja', ja),
+      ctx.locale.register(NS, 'ko', ko),
+    ]
+    return () => { for (const dispose of disposers) dispose() }
+  }, 'dsh-thinking-levels: dictionaries')
 
   ctx.slots.inject('settings.plugin.item', function* () {
     yield ctx.slots.register({

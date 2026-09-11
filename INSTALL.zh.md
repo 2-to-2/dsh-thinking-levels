@@ -20,6 +20,17 @@
 - `dsh-thinking-levels`：npm 包名与运行时插件 ID；
 - `thinking-levels`：Cordis 组合条目与设置页 Slot ID。
 
+> **版本要求 —— 仅支持 DSH v0.1.2 及以上。**
+>
+> 安装前先确认版本（`dsh --version`）。
+>
+> | DSH 版本 | 操作 |
+> | --- | --- |
+> | ≥ 0.1.2 | 安装本版本。 |
+> | < 0.1.2 | 留在旧版插件（0.7.1-beta.2 及更早）。**不要在 v0.1.2+ 的 DSH 上运行旧版插件，请升级插件。** |
+>
+> 分界点是 `0.1.2-alpha.1`：该版本删除了 `@deepseek-ai/dsh-client-runtime`。本版本改用 `@deepseek-ai/cordis` 的 `Context`（替代已删除的 `ClientContext`），与官方客户端插件一致。
+
 ## 0. 前置检查与 profile 确认
 
 ```bash

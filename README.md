@@ -3,7 +3,7 @@
 **Per-round thinking-level (`reasoning_effort`) control for [DeepSeek Harness (dsh)](https://github.com/deepseek-ai/deepseek-harness): pick `Auto` (a mask) in the session model selector and the plugin schedules `low` / `high` / `max` from the recent tool-call history before submitting the API effort — or fix a wire level (`off` / `on` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max`) manually. Cheap tool rounds stay cheap; heavy work never starves.**
 
 - [English README](./README.md)
-> **v0.7.0-beta.1 (2026-09-06): the short-circuit route is retired.** This release no longer depends on `dsh-llm-openai-completions` — custom-gateway fixes ride the official `llm-pi-ai` compat surface (requires **dsh ≥ v0.1.0-rc.8**); keep the adapter plugin uninstalled. See the [CHANGELOG](./CHANGELOG.md).
+> **v0.7.0-beta.1 (2026-09-06): the short-circuit route is retired.** This release no longer depends on `dsh-llm-openai-completions` — custom-gateway fixes ride the official `llm-pi-ai` compat surface (requires **dsh ≥ v0.1.2-alpha.1**); keep the adapter plugin uninstalled. See the [CHANGELOG](./CHANGELOG.md).
 
 - [中文 README](./README.zh.md)
 - [日本語 README](./README.ja.md)
@@ -15,6 +15,17 @@
 - [Changelog](./CHANGELOG.md)
 - [日本語 changelog](./CHANGELOG.ja.md)
 - [한국어 changelog](./CHANGELOG.ko.md)
+
+> **▼ DSH version support**
+>
+> This release supports **DSH v0.1.2 or newer** only.
+>
+> | DSH version | Status | Notes |
+> | --- | --- | --- |
+> | ≥ 0.1.2-alpha.1 | ✅ Supported | Covers the 0.1.2 / 0.1.3 / 0.1.4 / 0.1.5 lines |
+> | < 0.1.2-alpha.1 | ⚠️ Not recommended | Stay on the previous plugin line (0.7.1-beta.2 or earlier). Do not run an older plugin build against DSH v0.1.2+ — upgrade the plugin instead. |
+>
+> The boundary is `0.1.2-alpha.1`, where DSH removed `@deepseek-ai/dsh-client-runtime`. This release imports `Context` from `@deepseek-ai/cordis` instead of the deleted `ClientContext`, matching the official client plugins.
 
 > **Compatibility note:** Version `0.6.0` includes Japanese (`ja`) and Korean (`ko`) dictionaries and selector entries, but the current official DSH releases expose only `zh` and `en` through `LocaleRuntime`. On stock DSH, selecting `ja` or `ko` fails with `locale "<id>" is not registered`. These languages will work after official DSH adds the locale IDs. Advanced users can use a DSH fork that updates `packages/client/locale/src/locale-settings.ts` (`LOCALE_IDS`) and `packages/client/locale/src/client/index.ts` (`LOCALES` labels), together with the corresponding core dictionaries and tests, then rebuild and run the forked DSH. Changing this plugin alone cannot extend DSH's global locale list.
 

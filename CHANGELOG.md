@@ -8,6 +8,29 @@ All notable changes to `dsh-thinking-levels` are documented here.
 
 ## [Unreleased]
 
+### Breaking — DSH v0.1.2+ only (`dsh-client-runtime` removal) — 0.7.2-beta.1
+
+- **`engines.dsh` is now `>=0.1.2-alpha.1 <0.2.0-0`.** `@deepseek-ai/dsh-client-runtime`
+  was deleted wholesale in `0.1.2-alpha.1` (commit `be531688f3`); that release is the hard
+  segment boundary. The previous plugin line (`0.7.1-beta.2` and earlier) keeps serving
+  DSH 0.1.0 / 0.1.1.
+- **`ClientContext` is gone.** `src/client/index.ts` now imports
+  `Context as ClientContext` from `@deepseek-ai/cordis`, matching every official client
+  plugin. `@deepseek-ai/dsh-client-runtime` is removed from `peerDependencies`,
+  `peerDependenciesMeta` and `devDependencies`, so it no longer blocks install.
+- **`src/types/contracts.d.ts` loses the ambient
+  `declare module '@deepseek-ai/dsh-client-runtime/client'` mirror.** `SettingsScope`
+  gains the `base` / `user` / `revision` snapshot fields and `bind` takes an optional
+  `decode`; the `SlotsFace` mirror stays (the real `SlotRegistry` in
+  `@deepseek-ai/dsh-client-ui-renderer` supplies it at runtime).
+- **`dsh.client.inject` lists `@deepseek-ai/dsh-client-ui-renderer`**, the package that
+  provides the `slots` service this plugin registers into.
+- **Localized registration split by overload.** The bulk
+  `register(ns, dicts)` form is typed to the built-in locale ids (`zh` / `en` only), so
+  the shipped `ja` / `ko` dictionaries now go through the single-locale
+  `register(ns, locale, dict)` overload and are disposed together. Behaviour is
+  unchanged; the call now typechecks against the real locale package.
+
 ### Removed
 
 - **Dead `agent/tool` listener.** The per-tool wall-clock telemetry registered a
