@@ -8,6 +8,23 @@ All notable changes to `dsh-thinking-levels` are documented here.
 
 ## [Unreleased]
 
+### Removed — the model-menu context row is withdrawn — 2.0.0-beta.2
+
+- **The context-window quick control is removed.** It could only appear where a harness renders
+  it, and the shipped harness has no such place: DSH `0.1.2-rc.1`'s model card is fully owned by
+  `ModelSelect` (`renderSlot` is called zero times in that component, and all eight
+  `conversation.input.*` seats sit on the composer side), so the row needed a harness-side seat
+  that a plugin cannot declare for itself. Rather than ship a registration no host renders — or
+  patch the host — the control is gone, together with its `input.context.*` copy in all four
+  dictionaries and the `conversation.input.model.section` entry in the local slot mirror.
+- **The withdrawn attempt stays on npm as `2.0.0-beta.1`** (git `4d988b8`): it carries the fix for
+  the `TypeError: l is not a function` crash the old composer pill caused by calling a standard
+  seat without a selector, plus the never-rendered registration. `2.0.0-beta.2` is the first
+  release in this line with no context control at all.
+- **Unchanged: the settings card editor.** Per-model context-window presets, the custom integer
+  and Clear stay exactly as they are, writing the same `llm-pi-ai` / `llm-deepseek` namespaces.
+  The card is the supported way to cap a model's context window.
+
 ### Breaking — DSH v0.1.2+ only (`dsh-client-runtime` removal) — 0.7.2-beta.1
 
 - **`engines.dsh` is now `>=0.1.2-alpha.1 <0.2.0-0`.** `@deepseek-ai/dsh-client-runtime`

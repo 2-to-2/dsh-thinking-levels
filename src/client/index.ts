@@ -16,7 +16,6 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { ThinkingLevelsConfig } from '../index.ts'
 import { NS, en, ja, ko, zh } from './locales.ts'
 import { ThinkingLevelsCard, type ThinkingLevelsCardInjected } from './card.tsx'
-import { ContextQuick, type ContextQuickInjected } from './context-quick.tsx'
 
 /** The settings namespace the host half registers (kept in lockstep with src/index.ts). */
 const THINKING_LEVELS_NS = 'thinking-levels'
@@ -62,26 +61,5 @@ export function apply(ctx: ClientContext): void {
         return { scope, piAiScope }
       },
     }, ThinkingLevelsCard)
-  })
-
-  // Model menu section: one compact context-window row inside the composer's
-  // model card (`conversation.input.model.section`, below the Model /
-  // Reasoning-effort rows). It edits the current session model's
-  // `contextWindow` live: custom gateways write the `llm-pi-ai` namespace
-  // (same scope as the settings card), official DeepSeek models write the
-  // `llm-deepseek` namespace (its `models[].contextWindow` / default cap).
-  // The seat is declared by ui-model-selection's model seat; on a harness that
-  // does not declare it yet the registration simply stays pending.
-  ctx.slots.inject('conversation.input.model.section', function* () {
-    yield ctx.slots.register({
-      name: 'conversation.input.model.section',
-      id: 'context-window-quick',
-      locale: NS,
-      inject: (): ContextQuickInjected => {
-        const piAiScope = ctx.settingsScope.bind<unknown>({ namespace: 'llm-pi-ai' })
-        const deepseekScope = ctx.settingsScope.bind<unknown>({ namespace: 'llm-deepseek' })
-        return { piAiScope, deepseekScope }
-      },
-    }, ContextQuick)
   })
 }

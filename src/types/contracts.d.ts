@@ -23,14 +23,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   /** Slot map entries consumed by this plugin (subset of the harness table). */
   export interface SlotMap {
     'settings.plugin.item': { kind: 'keyed'; scope: 'root'; owner: object }
-    /**
-     * The model menu card's section strip: rendered by ui-model-selection's
-     * ModelSelect under the Model / Reasoning-effort rows of the root pane
-     * (`packages/client/ui-model-selection/src/client/slots.ts` declares it;
-     * the occupant's register call opens it for other plugins). Session-scoped
-     * list with no owner props, one compact row per contribution.
-     */
-    'conversation.input.model.section': { kind: 'list'; scope: 'session' }
   }
 
   /** Locale namespaces merged by client plugins. */
