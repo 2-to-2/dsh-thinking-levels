@@ -8,6 +8,34 @@ All notable changes to `dsh-thinking-levels` are documented here.
 
 ## [Unreleased]
 
+### Fixed — legacy line renumbered to 1.x — 1.0.0-beta.1
+
+- **The composer context-window control crashed its slot on every render.** `ContextQuick`
+  called the session standard seat as a bare getter (`useSession()`). Every renderer standard
+  seat is a `useSyncExternalStoreWithSelector` *selector hook* bound by `bindSnapshotSelector`,
+  so the call reached the shim with `selector === undefined` and threw
+  `TypeError: l is not a function`, taking the whole `conversation.input.right` entry down on
+  each render. The control now reads the session `useConversation` seat through a stable
+  module-level selector (`ConversationSnapshot.views.get('trajectory')`) — the view that
+  actually carries the request ledger. The previous code read `session.views.get('trajectory')`
+  on the *session* snapshot, a field `SessionSnapshot` never had, so it could not have resolved
+  a model even without the crash.
+- **A harness line without that seat renders nothing** instead of a dead control: the
+  capability check is a separate outer component, so the seat hook itself is only ever called
+  inside a component that was handed a real hook (hook order stays stable either way).
+- **The popover is now one slider row.** The preset button grid is gone: a preset slider
+  (64K / 128K / 256K / 400K / 512K / 1M) writes once per gesture (pointer release, key release,
+  blur), next to the committed value, a collapsed custom-integer editor (`⋯`) and Clear. The
+  trigger pill shows the value only — no `ctx` prefix, no hint paragraph (the full hint stays on
+  the pill's `title`). Copy is localized in all four dictionaries.
+- **Version renumbering: the line is now the major digit.** This legacy line (DSH < 0.1.2)
+  moves to **1.x**, the mainline (DSH 0.1.2+) to **2.x**, so an installed version states which
+  harness segment it serves. npm dist-tags keep their roles: `compat` = this line, `beta` =
+  the mainline. Nothing else changes for existing installs; a `0.7.x` range simply does not
+  match `1.x`, so the switch is explicit.
+- **No harness-side changes on this line.** DSH 0.1.0/0.1.1 has no model-menu child slot, so
+  the quick control stays in the composer tool row it was always registered into.
+
 ### Changed — compat line narrowed to DSH < 0.1.2-alpha.1 — 0.7.1-beta.3
 
 - **`engines.dsh` gained an upper bound**: `>=0.1.0-rc.8` → `>=0.1.0-rc.8 <0.1.2-alpha.1`.
