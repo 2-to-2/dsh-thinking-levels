@@ -24,11 +24,13 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   export interface SlotMap {
     'settings.plugin.item': { kind: 'keyed'; scope: 'root'; owner: object }
     /**
-     * The composer tool-row right seat (before the send button, next to the
-     * model/effort select): the plugin renders its context-window quick
-     * control here. Session-scoped list, one-row height budget.
+     * The model menu card's section strip: rendered by ui-model-selection's
+     * ModelSelect under the Model / Reasoning-effort rows of the root pane
+     * (`packages/client/ui-model-selection/src/client/slots.ts` declares it;
+     * the occupant's register call opens it for other plugins). Session-scoped
+     * list with no owner props, one compact row per contribution.
      */
-    'conversation.input.right': { kind: 'list'; scope: 'session' }
+    'conversation.input.model.section': { kind: 'list'; scope: 'session' }
   }
 
   /** Locale namespaces merged by client plugins. */

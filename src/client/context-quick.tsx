@@ -1,11 +1,13 @@
 /**
- * Context-window quick control for the composer tool row
- * (`conversation.input.right`, the seat just left of the send button and next
- * to the model/effort select).
+ * Context-window quick control for the model menu card
+ * (`conversation.input.model.section`, rendered under the Model /
+ * Reasoning-effort rows of the root pane).
  *
- * It targets the CURRENT session's active model (read from the trajectory
- * view's latest assistant request) and lets the user cap that model's context
- * window on the fly — presets, a custom integer, or clear to restore.
+ * It targets the CURRENT session's active model (read through the session
+ * `useTrajectory` standard seat) and lets the user cap that model's context
+ * window on the fly. The row is deliberately compact: one label, a slider over
+ * the shared presets, the committed value, a collapsed custom-integer editor
+ * and Clear — no title block and no preset button grid.
  *
  * Two model families are served, each with its own writable settings
  * namespace (both consumed live by `resolveModelInfo(...).context.contextWindow`,
@@ -16,9 +18,13 @@
  *   namespace): writes the catalog model's `contextWindow` when the model is
  *   listed, otherwise caps via `defaultContextWindow`.
  *
- * Kept dependency-free beyond react + the injected scopes: the trigger is a
- * plain pill, the popover renders inline (absolutely positioned above the tool
- * row), and validation reuses the shared `validateContextWindow`.
+ * Write discipline: dragging the slider only moves a local draft; the settings
+ * write happens once per gesture (pointer release, key release, blur), so a
+ * drag never floods the host with intermediate values.
+ *
+ * Kept dependency-free beyond react + the injected scopes: plain HTML controls
+ * with token-based inline styling, and validation reuses the shared
+ * `validateContextWindow`.
  */
 import { useState, useSyncExternalStore } from 'react'
 import type { CSSProperties, JSX } from 'react'
@@ -29,6 +35,8 @@ import { CONTEXT_WINDOW_PRESETS, formatContextWindow, validateContextWindow } fr
 const DEEPSEEK_PROVIDER = 'deepseek-official'
 /** llm-deepseek's native default context capacity (DEFAULT_CONTEXT_WINDOW). */
 const DEEPSEEK_DEFAULT_WINDOW = 1_000_000
+/** Slider stop an unset window parks on: the thumb needs a position, the readout stays "unset". */
+const UNSET_STOP_INDEX = CONTEXT_WINDOW_PRESETS.findIndex(preset => preset.value === 256_000)
 
 /** One injected face: the `llm-pi-ai` and `llm-deepseek` namespace scopes. */
 export interface ContextQuickInjected {
@@ -38,99 +46,134 @@ export interface ContextQuickInjected {
   deepseekScope: SettingsScope<unknown>
 }
 
+/** The narrow trajectory-view slice the component reads for provider/model. */
+interface TrajectoryLike {
+  requests?: readonly {
+    purpose?: string
+    prompt?: { config?: { provider?: string; model?: string } }
+  }[]
+}
+
+/**
+ * One renderer standard seat: a `useSyncExternalStoreWithSelector`-bound
+ * selector hook over a host observable. The selector is required — the kit
+ * never defaults it (compare `useProjection`, which does).
+ */
+type SnapshotSelectorHook<Snapshot> = <Selected>(
+  selector: (snapshot: Snapshot) => Selected,
+  isEqual?: (a: Selected, b: Selected) => boolean,
+) => Selected
+
 /** Full props: injected scopes + the session standard seats + locale copy. */
 export interface ContextQuickProps extends ContextQuickInjected {
   /** The session id of the slot's owning conversation (standard seat). */
   sessionId: string
-  /** Session snapshot hook (standard seat): returns the ConversationSnapshot. */
-  useSession: () => unknown
+  /**
+   * The session `useTrajectory` standard seat: a selector hook over the current
+   * conversation binding's Trajectory view (the ledger that carries every
+   * assembled request). It is NOT a bare snapshot getter — a selector is
+   * mandatory.
+   */
+  useTrajectory: SnapshotSelectorHook<TrajectoryLike>
   /** Locale copy thunk. */
   t: (key: string) => string
 }
 
 /* ── shared inline styling (no CSS modules in the client bundle) ───────── */
 
-const pillStyle: CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: '4px',
-  height: '24px',
-  padding: '0 8px',
-  background: 'var(--dsw-alias-bg-surface, #fff)',
-  color: 'var(--dsw-alias-label-secondary)',
-  border: '1px solid var(--dsw-alias-border-l2)',
-  borderRadius: '6px',
-  fontSize: '11px',
-  lineHeight: '16px',
-  fontFamily: 'var(--ds-font-family-code, monospace)',
-  cursor: 'pointer',
-  whiteSpace: 'nowrap',
-}
-
-const popStyle: CSSProperties = {
-  position: 'absolute',
-  bottom: 'calc(100% + 8px)',
-  right: '0',
-  zIndex: 1200,
-  minWidth: '240px',
-  padding: '10px',
-  background: 'var(--dsw-alias-bg-layer-3, rgba(127,127,127,0.05))',
-  color: 'var(--dsw-alias-label-primary)',
-  border: '1px solid var(--dsw-alias-border-l2)',
-  borderRadius: '10px',
-  boxShadow: '0 8px 28px rgba(0,0,0,0.18)',
+const sectionStyle: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: '8px',
+  gap: '6px',
+  // The seat renders the contribution bare inside the menu card, so the row
+  // carries its own divider and spacing below the effort row.
+  marginTop: '4px',
+  paddingTop: '7px',
+  borderTop: '1px solid var(--dsw-alias-border-l1)',
 }
 
-const backdropStyle: CSSProperties = { position: 'fixed', inset: 0, zIndex: 1199 }
-
-const labelStyle: CSSProperties = { margin: 0, fontSize: '12px', lineHeight: '18px', color: 'var(--dsw-alias-label-secondary)' }
-
-const hintStyle: CSSProperties = { margin: 0, fontSize: '11px', lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary)' }
-
-const presetRowStyle: CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: '5px' }
-
-const presetStyle: CSSProperties = {
-  height: '22px',
-  padding: '0 8px',
-  background: 'var(--dsw-alias-bg-surface, #fff)',
+const rowStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '8px',
+  fontSize: '12px',
+  lineHeight: '18px',
   color: 'var(--dsw-alias-label-secondary)',
-  border: '1px solid var(--dsw-alias-border-l2)',
-  borderRadius: '5px',
-  fontSize: '11px',
-  lineHeight: '16px',
-  fontFamily: 'var(--ds-font-family-code, monospace)',
+}
+
+const labelStyle: CSSProperties = {
+  flex: '0 0 auto',
+  minWidth: '0',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  color: 'var(--dsw-alias-label-tertiary)',
+}
+
+const sliderStyle: CSSProperties = {
+  flex: '1 1 auto',
+  minWidth: '56px',
+  height: '14px',
+  margin: '0',
+  accentColor: 'var(--dsw-alias-state-business-primary)',
   cursor: 'pointer',
+}
+
+const valueStyle: CSSProperties = {
+  flex: '0 0 auto',
+  minWidth: '40px',
+  textAlign: 'right',
+  color: 'var(--dsw-alias-label-primary)',
+  fontFamily: 'var(--ds-font-family-code, monospace)',
+  fontVariantNumeric: 'tabular-nums',
+}
+
+const glyphButtonStyle: CSSProperties = {
+  flex: '0 0 auto',
+  height: '18px',
+  padding: '0 5px',
+  border: '1px solid transparent',
+  borderRadius: '4px',
+  background: 'transparent',
+  color: 'var(--dsw-alias-label-tertiary)',
+  font: 'inherit',
+  cursor: 'pointer',
+}
+
+const actionButtonStyle: CSSProperties = {
+  flex: '0 0 auto',
+  height: '18px',
+  padding: '0 6px',
+  border: '1px solid transparent',
+  borderRadius: '4px',
+  background: 'transparent',
+  color: 'var(--dsw-alias-label-secondary)',
+  font: 'inherit',
+  cursor: 'pointer',
+}
+
+const customRowStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '6px',
 }
 
 const inputStyle: CSSProperties = {
   flex: '1 1 auto',
   minWidth: '0',
-  background: 'var(--dsw-alias-bg-surface, #fff)',
-  color: 'var(--dsw-alias-label-primary)',
-  border: '1px solid var(--dsw-alias-border-l2)',
-  borderRadius: '5px',
-  padding: '3px 8px',
-  fontSize: '12px',
-  fontFamily: 'var(--ds-font-family-code, monospace)',
   boxSizing: 'border-box',
-}
-
-const actionStyle: CSSProperties = {
-  height: '24px',
-  padding: '0 10px',
-  background: 'var(--dsw-alias-bg-surface, #fff)',
-  color: 'var(--dsw-alias-label-primary)',
+  padding: '2px 6px',
   border: '1px solid var(--dsw-alias-border-l2)',
   borderRadius: '5px',
-  fontSize: '12px',
-  lineHeight: '18px',
-  cursor: 'pointer',
+  background: 'var(--dsw-alias-bg-surface, #fff)',
+  color: 'var(--dsw-alias-label-primary)',
+  font: 'inherit',
 }
 
-const errorStyle: CSSProperties = { margin: 0, fontSize: '11px', lineHeight: '16px', color: 'var(--dsw-alias-danger, #e5484d)' }
+const errorStyle: CSSProperties = {
+  flex: '0 0 auto',
+  color: 'var(--dsw-alias-danger, #e5484d)',
+}
 
 /* ── helpers over the settings user layer ──────────────────────────────── */
 
@@ -167,27 +210,28 @@ function deepseekSectionOf(snapshot: unknown): {
   }
 }
 
-/** The narrow trajectory-view slice the component reads for provider/model. */
-interface TrajectoryLike {
-  requests?: readonly {
-    purpose?: string
-    prompt?: { config?: { provider?: string; model?: string } }
-  }[]
-}
+/**
+ * The stable trajectory selector: the seat memoizes its selection on the
+ * selector reference, so it must not be a fresh closure per render. Selecting
+ * the request ledger (a snapshot-owned array, not a derived object) keeps the
+ * selected value reference-stable between snapshots — a selector that built a
+ * new object would re-render forever.
+ * @param snapshot - the current Trajectory view snapshot.
+ * @returns the assembled request ledger.
+ */
+const selectRequests = (snapshot: TrajectoryLike): TrajectoryLike['requests'] => snapshot.requests
 
 /**
- * The current session's active model, reconstructed from the trajectory view's
+ * The current session's active model, taken from the trajectory ledger's
  * latest assistant request prompt config. Absent for a blank session (no
  * request yet) — the control then renders read-only/disabled.
+ * @param requests - the trajectory ledger's request views.
  */
-function activeModelOf(session: unknown): { provider: string; model: string } | undefined {
-  if (typeof session !== 'object' || session === null) return undefined
-  const views = (session as { views?: { get?: (key: string) => unknown } }).views
-  const trajectory = views?.get?.('trajectory') as TrajectoryLike | undefined
-  const requests = trajectory?.requests ?? []
-  for (let index = requests.length - 1; index >= 0; index -= 1) {
-    const config = requests[index]?.prompt?.config
-    if (requests[index]?.purpose === 'assistant'
+function activeModelOf(requests: TrajectoryLike['requests']): { provider: string; model: string } | undefined {
+  const list = requests ?? []
+  for (let index = list.length - 1; index >= 0; index -= 1) {
+    const config = list[index]?.prompt?.config
+    if (list[index]?.purpose === 'assistant'
       && typeof config?.provider === 'string'
       && typeof config?.model === 'string') {
       return { provider: config.provider, model: config.model }
@@ -203,16 +247,34 @@ function contextWindowOf(model: Record<string, unknown>): number | undefined {
 }
 
 /**
- * The composer context-window quick control: a pill showing the current
- * session model's context window that opens an inline popover with preset
- * quick-picks, a custom integer input and a clear (restore default) action.
- * Custom gateways and official DeepSeek models are both supported (see module
- * doc for the namespace each writes).
+ * The slider stop nearest to a committed token count; a window that matches no
+ * preset (typed through the card) still parks the thumb on its closest stop.
+ * @param value - the committed context window, when one is set.
+ * @returns the stop index, or the unset park position.
+ */
+function stopIndexOf(value: number | undefined): number {
+  if (value === undefined) return UNSET_STOP_INDEX
+  let best = 0
+  let bestDistance = Number.POSITIVE_INFINITY
+  CONTEXT_WINDOW_PRESETS.forEach((preset, index) => {
+    const distance = Math.abs(preset.value - value)
+    if (distance < bestDistance) {
+      bestDistance = distance
+      best = index
+    }
+  })
+  return best
+}
+
+/**
+ * The model card's context-window section: a preset slider, the committed
+ * value, a collapsed custom-integer editor and Clear. Custom gateways and
+ * official DeepSeek models are both supported (see module doc for the
+ * namespace each writes).
  * @param props - injected scopes, session standard seats, copy.
  */
-export function ContextQuick({ useSession, piAiScope, deepseekScope, t }: ContextQuickProps): JSX.Element {
-  const session = useSession()
-  const active = activeModelOf(session)
+export function ContextQuick({ useTrajectory, piAiScope, deepseekScope, t }: ContextQuickProps): JSX.Element {
+  const active = activeModelOf(useTrajectory(selectRequests))
   const official = active !== undefined && active.provider === DEEPSEEK_PROVIDER
 
   const piSnapshot = useSyncExternalStore(
@@ -248,17 +310,22 @@ export function ContextQuick({ useSession, piAiScope, deepseekScope, t }: Contex
     writableTarget = model !== undefined
   }
 
-  // UI-only state: the popover, the custom draft and its error.
-  const [open, setOpen] = useState(false)
+  // UI-only state: the uncommitted stop, the custom draft and its error.
+  const [draft, setDraft] = useState<number | null>(null)
+  const [custom, setCustom] = useState(false)
   const [raw, setRaw] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   const disabled = readonly || busy || active === undefined || !writableTarget
+  const stop = draft ?? stopIndexOf(currentWindow)
 
   /** Commit (or delete) the active model's context window. */
   const commitWindow = (value: number | undefined): void => {
-    if (active === undefined || snapshot.status !== 'ready' || !writableTarget) return
+    if (active === undefined || snapshot.status !== 'ready' || !writableTarget) {
+      setDraft(null)
+      return
+    }
     setBusy(true)
     if (official) {
       // Official DeepSeek: cap the catalog model when listed, else the provider default.
@@ -275,7 +342,7 @@ export function ContextQuick({ useSession, piAiScope, deepseekScope, t }: Contex
           return { ...model, contextWindow: value }
         }))
         : deepseekScope.set('defaultContextWindow', value === undefined ? DEEPSEEK_DEFAULT_WINDOW : value)
-      commit.then(() => { setBusy(false) }).catch(() => { setBusy(false) })
+      commit.then(() => { setBusy(false); setDraft(null) }).catch(() => { setBusy(false); setDraft(null) })
       return
     }
     const next = structuredClone(providers)
@@ -284,20 +351,20 @@ export function ContextQuick({ useSession, piAiScope, deepseekScope, t }: Contex
       typeof candidate === 'object' && candidate !== null && (candidate as Record<string, unknown>)['id'] === active.model)
     if (entry === undefined) {
       setBusy(false)
+      setDraft(null)
       return
     }
     if (value === undefined) delete (entry as Record<string, unknown>)['contextWindow']
     else (entry as Record<string, unknown>)['contextWindow'] = value
     void piAiScope.set('providers', next)
-      .then(() => { setBusy(false) })
-      .catch(() => { setBusy(false) })
+      .then(() => { setBusy(false); setDraft(null) })
+      .catch(() => { setBusy(false); setDraft(null) })
   }
 
-  /** Pick one preset immediately. */
-  const pickPreset = (value: number): void => {
-    setRaw(String(value))
-    setError(null)
-    commitWindow(value)
+  /** Write the stop the gesture landed on; a drag only moves the draft. */
+  const commitStop = (): void => {
+    if (disabled || draft === null) return
+    commitWindow(CONTEXT_WINDOW_PRESETS[draft]?.value)
   }
 
   /** Validate and commit the custom input; empty clears. */
@@ -317,89 +384,83 @@ export function ContextQuick({ useSession, piAiScope, deepseekScope, t }: Contex
     commitWindow(validation.value)
   }
 
-  const triggerLabel = currentWindow === undefined
-    ? t('input.context.unset')
-    : formatContextWindow(currentWindow)
+  const value = draft === null
+    ? currentWindow === undefined ? t('input.context.unset') : formatContextWindow(currentWindow)
+    : formatContextWindow(CONTEXT_WINDOW_PRESETS[draft]?.value ?? 0)
 
   return (
-    <div style={{ position: 'relative', display: 'inline-flex' }}>
-      <button
-        type="button"
-        disabled={disabled}
-        style={{
-          ...pillStyle,
-          cursor: disabled ? 'default' : 'pointer',
-          opacity: disabled ? 0.55 : 1,
-        }}
-        title={active === undefined
-          ? t('input.context.noModel')
-          : `${active.provider}/${active.model}`}
-        onClick={() => { setOpen(current => !current) }}
-      >
-        {triggerLabel}
-      </button>
-      {open
+    <section style={sectionStyle} role="group" aria-label={t('input.context.title')}>
+      <div style={rowStyle}>
+        <span style={labelStyle} title={t('input.context.globalHint')}>{t('input.context.title')}</span>
+        <input
+          type="range"
+          min={0}
+          max={CONTEXT_WINDOW_PRESETS.length - 1}
+          step={1}
+          value={stop}
+          disabled={disabled}
+          aria-label={t('input.context.title')}
+          title={active === undefined ? t('input.context.noModel') : `${active.provider}/${active.model}`}
+          style={{ ...sliderStyle, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.55 : 1 }}
+          onChange={(event) => { setDraft(Number(event.currentTarget.value)) }}
+          onPointerUp={commitStop}
+          onKeyUp={commitStop}
+          onBlur={commitStop}
+        />
+        <span style={valueStyle}>{value}</span>
+        <button
+          type="button"
+          disabled={disabled}
+          aria-label={t('input.context.custom')}
+          aria-expanded={custom}
+          title={t('input.context.custom')}
+          style={{ ...glyphButtonStyle, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.55 : 1 }}
+          onClick={() => { setCustom(open => !open); setError(null) }}
+        >
+          ⋯
+        </button>
+        <button
+          type="button"
+          disabled={disabled || currentWindow === undefined}
+          style={{
+            ...actionButtonStyle,
+            cursor: disabled || currentWindow === undefined ? 'default' : 'pointer',
+            opacity: disabled || currentWindow === undefined ? 0.55 : 1,
+          }}
+          onClick={() => { setDraft(null); setError(null); setRaw(''); commitWindow(undefined) }}
+        >
+          {t('input.context.clear')}
+        </button>
+      </div>
+      {custom
         ? (
-          <>
-            <div style={backdropStyle} onClick={() => setOpen(false)} />
-            <div style={popStyle} role="dialog" aria-label={t('input.context.title')}>
-              <p style={labelStyle}>
-                {t('input.context.title')}
-                {active !== undefined ? ` · ${active.provider}/${active.model}` : ''}
-              </p>
-              <p style={hintStyle}>{t('input.context.globalHint')}</p>
-              <div style={presetRowStyle}>
-                {CONTEXT_WINDOW_PRESETS.map(preset => (
-                  <button
-                    key={preset.value}
-                    type="button"
-                    disabled={disabled}
-                    style={{
-                      ...presetStyle,
-                      cursor: disabled ? 'default' : 'pointer',
-                      opacity: disabled ? 0.5 : 1,
-                    }}
-                    onClick={() => pickPreset(preset.value)}
-                  >
-                    {preset.label}
-                  </button>
-                ))}
-              </div>
-              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                <input
-                  type="text"
-                  value={raw}
-                  disabled={disabled}
-                  placeholder={t('input.context.customPlaceholder')}
-                  style={inputStyle}
-                  onChange={(event) => { setRaw(event.currentTarget.value) }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') { setOpen(false); applyCustom() }
-                  }}
-                />
-                <button
-                  type="button"
-                  disabled={disabled}
-                  style={{ ...actionStyle, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.5 : 1 }}
-                  onClick={() => { setOpen(false); applyCustom() }}
-                >
-                  {t('input.context.apply')}
-                </button>
-                <button
-                  type="button"
-                  disabled={disabled}
-                  style={{ ...actionStyle, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.5 : 1 }}
-                  onClick={() => { setOpen(false); setRaw(''); setError(null); commitWindow(undefined) }}
-                >
-                  {t('input.context.clear')}
-                </button>
-              </div>
-              {error !== null && <p style={errorStyle}>{error}</p>}
-            </div>
-          </>
+          <div style={customRowStyle}>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={raw}
+              disabled={disabled}
+              placeholder={t('input.context.customPlaceholder')}
+              aria-label={t('input.context.customPlaceholder')}
+              style={inputStyle}
+              onChange={(event) => { setRaw(event.currentTarget.value) }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') applyCustom()
+              }}
+            />
+            <button
+              type="button"
+              disabled={disabled}
+              style={{ ...actionButtonStyle, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.55 : 1 }}
+              onClick={applyCustom}
+            >
+              {t('input.context.apply')}
+            </button>
+            {error !== null && <span style={errorStyle}>{error}</span>}
+          </div>
         )
         : null}
-    </div>
+    </section>
   )
 }
 

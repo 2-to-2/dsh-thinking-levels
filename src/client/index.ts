@@ -64,14 +64,17 @@ export function apply(ctx: ClientContext): void {
     }, ThinkingLevelsCard)
   })
 
-  // Composer quick control: a context-window pill next to the model/effort
-  // select (`conversation.input.right`). It edits the current session model's
+  // Model menu section: one compact context-window row inside the composer's
+  // model card (`conversation.input.model.section`, below the Model /
+  // Reasoning-effort rows). It edits the current session model's
   // `contextWindow` live: custom gateways write the `llm-pi-ai` namespace
   // (same scope as the settings card), official DeepSeek models write the
   // `llm-deepseek` namespace (its `models[].contextWindow` / default cap).
-  ctx.slots.inject('conversation.input.right', function* () {
+  // The seat is declared by ui-model-selection's model seat; on a harness that
+  // does not declare it yet the registration simply stays pending.
+  ctx.slots.inject('conversation.input.model.section', function* () {
     yield ctx.slots.register({
-      name: 'conversation.input.right',
+      name: 'conversation.input.model.section',
       id: 'context-window-quick',
       locale: NS,
       inject: (): ContextQuickInjected => {

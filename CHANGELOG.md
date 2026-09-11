@@ -46,6 +46,39 @@ All notable changes to `dsh-thinking-levels` are documented here.
   has its own tests (`tests/session-events.spec.ts`, `tests/thinking-level.spec.ts`) and
   was untouched.
 
+### Fixed — mainline renumbered to 2.x — 2.0.0-beta.1
+
+- **The context-window quick control crashed its slot on every render.** `ContextQuick`
+  called the session standard seat as a bare getter (`useSession()`). Every renderer standard
+  seat is a `useSyncExternalStoreWithSelector` *selector hook* bound by `bindSnapshotSelector`
+  (`@deepseek-ai/dsh-client-ui-renderer`), so the call reached the shim with
+  `selector === undefined` and threw `TypeError: l is not a function`: the
+  `conversation.input.right` entry died and the slot error boundary rethrew it on each render.
+  The same component also read `session.views.get('trajectory')`, a field `SessionSnapshot`
+  never carried (views belong to `ConversationSnapshot`), so it could not have resolved a model
+  even without the crash. The active model now comes from the session `useTrajectory` seat
+  through a stable module-level selector over the request ledger.
+- **The control moved into the model menu card.** It registers into
+  `conversation.input.model.section` — the strip ui-model-selection renders under the Model /
+  Reasoning-effort rows — as a compact slider row: a preset slider (64K / 128K / 256K / 400K /
+  512K / 1M) that writes once per gesture (pointer release, key release, blur), the committed
+  value, a collapsed custom-integer editor and Clear. The copy is down to the row label, the
+  value and Clear. The composer-row pill is gone; the settings card keeps the full per-model
+  editor. The row appears on harnesses whose model seat declares that child slot (added in
+  `packages/client/ui-model-selection`); on older harnesses the registration stays pending and
+  the settings card remains the editor.
+- **`dsh.plugin.json` version synced** with `package.json`; the 0.7.2-beta.1 tarball had
+  shipped it as 0.7.1-beta.2.
+- **Version renumbering: the line is now the major digit.** This mainline (DSH 0.1.2+) moves
+  to **2.x**, the legacy line (DSH < 0.1.2, branch `compat/dsh-0.1.1`) to **1.x**, so an
+  installed version states which harness segment it serves. npm dist-tags keep their roles:
+  `beta` = this line, `compat` = the legacy line. Nothing else changes for existing installs;
+  a `0.7.x` range simply does not match `2.x`, so the switch is explicit.
+- **The model-menu row needs a harness that declares the seat.** `conversation.input.model.section`
+  is added to `packages/client/ui-model-selection` (declaration + `renderSlot` call); until a
+  harness release carries it, the registration stays pending and the settings card remains the
+  editor. No released harness has it today.
+
 ## [0.7.0] — 2026-09-09
 
 > **Stable release.** The short-circuit route is retired; all gateway fixes now ride the official `llm-pi-ai` compat surface (dsh ≥ **v0.1.0-rc.8**). This version also includes the context-window presets from the earlier 0.7.0 draft.
