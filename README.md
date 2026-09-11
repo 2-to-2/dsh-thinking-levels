@@ -16,6 +16,13 @@
 - [日本語 changelog](./CHANGELOG.ja.md)
 - [한국어 changelog](./CHANGELOG.ko.md)
 
+> # ⚠️ LEGACY BRANCH — `compat/dsh-0.1.1`
+>
+> **This branch is the frozen old-version line. It is not the mainline.**
+>
+> - **Mainline**: `master` — the DSH 0.1.2+ line, where versions move forward.
+> - **This branch**: `compat/dsh-0.1.1` — the DSH 0.1.0 / 0.1.1 line, published under the npm `compat` tag only. It receives no feature work; it exists so old DSH installs keep working.
+>
 > **▼ DSH version support — compat line**
 >
 > This release (`0.7.1-beta.x`) supports **DSH < 0.1.2-alpha.1** (the 0.1.0 / 0.1.1 lines) only.
