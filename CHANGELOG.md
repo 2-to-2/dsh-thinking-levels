@@ -8,6 +8,24 @@ All notable changes to `dsh-thinking-levels` are documented here.
 
 ## [Unreleased]
 
+### Changed — DSH 0.1.5-rc compatibility — 2.0.0-beta.3
+
+- **The settings card rides the new 0.1.5 seat.** DSH 0.1.5 renamed the Plugins settings card
+  seat from `settings.plugin.item` to `settings.plugins.tab` (`id` = tab key, `order`, and a
+  registrant-localized `label`). Both registrations are declaration-gated via
+  `ctx.slots.inject`, so the card mounts on whichever seat the running host declares —
+  0.1.5+ hosts get the tab, 0.1.2–0.1.4 hosts keep the legacy card. The tab label is a
+  read-time thunk over `ctx.locale.bind(NS)`, so it follows locale switches.
+- **`ctx.slots` typing restored.** The `Context.slots` augmentation used to arrive
+  transitively through the (now deleted) `dsh-client-runtime` package; 0.1.5 moved it to
+  `@deepseek-ai/dsh-client-ui-renderer/client`, which the client half now imports.
+- **devDependencies pinned to 0.1.5-rc.2** and the whole suite (typecheck / lint / 65 tests /
+  build) verified against that tree. Host-half APIs (`settings.register/get/update`,
+  `settings/document-updated`, `agent/request`) are unchanged in 0.1.5-rc.2 — no host changes
+  were needed.
+- Verified against 0.1.5-rc.2 contract surfaces unpacked from npm: `conversation.input.right`,
+  `settingsScope.bind`, locale overloads, and the settings service face are all preserved.
+
 ### Changed — the context control lives in the composer row — 2.0.0-beta.2
 
 - **The context-window quick control sits in the composer tool row again**

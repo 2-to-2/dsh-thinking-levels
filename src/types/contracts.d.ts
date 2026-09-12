@@ -68,6 +68,11 @@ declare module '@deepseek-ai/dsh-client-locale/client' {
   /** Dictionary registration face. Returns the disposer that drops the dictionaries. */
   export interface LocaleFace {
     register(namespace: string, dictionaries: Record<string, Record<string, string>>): () => void
+    /**
+     * Bind a namespace to a translate function that re-reads the active locale
+     * per call (stable reference per namespace). Used by the 0.1.5 tab label.
+     */
+    bind(namespace: string): (key: string, params?: Record<string, unknown>) => string
   }
 }
 

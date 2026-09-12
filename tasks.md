@@ -1,28 +1,22 @@
-# Tasks — 2026-09-06 check 分支:官方 compat 路径验证
+# Tasks — DSH 0.1.5-rc 升级兼容（compat/0.1.5 分支）
 
-## Phase 1: 材料补齐(check 分支,均 ≤5 分钟)
-- [x] task_1: 更新 check/settings-route.example.yaml——加入
-      `thinkingFormat: qwen` 与 `chatTemplateKwargs: { enable_thinking: "true" }`
-      注释示例(qwen-chat-template 变体),标注 rc.8 起可用
-- [x] task_2: record-proxy.mjs 增加 `<think>` 内联检测:assistant content 含
-      `<think>` 标签时在汇总中单独计数(缺口候选 1 的证据)
-- [x] task_3: CHECK.md 增补"五项职责对照表"与 4/5 两缺口判据
+## Phase 1: 分支与依赖
+- [ ] task_1: `git checkout -b compat/0.1.5 master`（确认工作树干净）
+- [ ] task_2: package.json devDeps 五个 `@deepseek-ai/dsh-client-*` → `0.1.5-rc.2`（精确版本，不用 ^）；`npm install`
+- [ ] task_3: `npm run typecheck` 记录全部类型漂移清单（预期集中在 slots 契约）
 
-## Phase 1.5: 短路开关原位替换(用户裁定,已完成)
-- [x] task_1.5a: takeover-sync.ts——`nextTakeoverSection`/`TakeoverSection` 删除,
-      新增 `withDeveloperRoleDisabled`(route 级写官方 flag,显式值尊重,
-      身份比较幂等,immutable clone);`declaresThinking` 补 modelOverrides 扫描
-- [x] task_1.5b: index.ts 写桥改写官方 llm-pi-ai 域(effort host 模式:
-      read → transform → `update('llm-pi-ai',{providers})`),门控读桥保留
-- [x] task_1.5c: 测试更新,tsc + vitest 64 全绿
+## Phase 2: settings 卡片槽位迁移（src/client/index.ts）
+- [ ] task_4: 验证回退方式——在 0.1.5-rc.2 类型下确认 `ctx.slots.register` 对未声明槽的行为（读 dsh-client-ui-slots dist js 的 register 路径）；确定「双注册静默容忍」或「try/catch 回退」
+- [ ] task_5: 新增 `settings.plugins.tab` 注册分支：options `{ name: 'settings.plugins.tab', id: THINKING_LEVELS_NS, order: 100, label, locale: NS, inject }`，`label` 用 `() => ctx.locale.t(NS, 'cardTitle')` 形式的本地化工厂（与 card.tsx 现有 title key 对齐）；inject 工厂复用现有 `{ scope, piAiScope }`
+- [ ] task_6: 保留 `settings.plugin.item` 回退注册（现有代码不动或按 task_4 结论包 try/catch）
+- [ ] task_7: locale 切换重注册：若 label 为工厂函数仍不刷新（见 ui-settings 注释要求 registrant 重注册），监听 locale 变更事件 dispose + 重新注册 tab
 
-## Phase 2: A/B 实测(人工,dsh ≥ v0.1.0-rc.8)
-- [ ] task_4: 起代理,基线 A(插件接管)跑一轮多步推理会话,存 requests.jsonl
-- [ ] task_5: 卸两插件(`dsh plugin --profile <p> remove ... -w`),套用模板 B
-      重跑同一轮,developer=0、effort 映射、enable_thinking 形状核对
-- [ ] task_6: 缺口验证——Qwen3 `<think>` 拆分;视觉模型多图按序
-- [ ] task_7: 按 checklist 判定;不通过项 → 恢复对应插件职责;通过 →
-      官方路径定稿,数据回贴 #5008/#3789
+## Phase 3: 修复与验证
+- [ ] task_8: 修复 task_3 暴露的其余类型漂移（预期候选：`settings/document-updated` 回调签名、slots 类型参数）；不改宿主半逻辑
+- [ ] task_9: `npm run lint && npm run test && npm run build` 全绿
+- [ ] task_10: 版本号 → 2.0.0-beta.3（package.json + dsh.plugin.json + CHANGELOG.md/zh/ja/ko 追加条目）
 
-## 交付物
-- check/requests.jsonl(A/B 两份)、CHECK.md 勾选结果、卸载/保留结论
+## Phase 4: 文档与收尾
+- [ ] task_11: README/README.zh（+ja/ko）版本矩阵加 0.1.5 行；排障章节加「升级后卡片不显示 → 强制刷新浏览器」
+- [ ] task_12: 提交 compat/0.1.5 分支（feat: DSH 0.1.5-rc compat — settings.plugins.tab seat + devDeps 0.1.5-rc.2）
+- [ ] task_13: 实机验收过 checklist.md「Must Pass」各项（0.1.5-rc.2 + 0.1.2-rc.1 回退）

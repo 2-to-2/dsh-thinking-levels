@@ -13,6 +13,10 @@
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+// DSH 0.1.5 moved the `ctx.slots` Context augmentation here (it used to live in
+// the retired `dsh-client-runtime` package): importing the client types restores
+// the typed `ctx.slots` member on the cordis Context surface.
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { ThinkingLevelsConfig } from '../index.ts'
 import { NS, en, ja, ko, zh } from './locales.ts'
 import { ThinkingLevelsCard, type ThinkingLevelsCardInjected } from './card.tsx'
@@ -46,8 +50,8 @@ export function apply(ctx: ClientContext): void {
       name: 'settings.plugin.item',
       // Both keys are supplied: CLI dsh declares this slot `keyed` (needs
       // `key`) while DSH Desktop's bundled version declares it `list` (needs
-      // `id`) — the slots service validates only its kind's field, so the
-      // pair keeps the card working in both environments.
+      // `id`) — the slots service validates only its kind's field, so the pair
+      // keeps the card working in both environments.
       id: THINKING_LEVELS_NS,
       key: THINKING_LEVELS_NS,
       locale: NS,
@@ -58,6 +62,31 @@ export function apply(ctx: ClientContext): void {
         // effort levels / thinking format / the route-level official
         // compat.supportsDeveloperRole flag) without touching any official
         // package — llm-pi-ai's own schema validates every write.
+        const piAiScope = ctx.settingsScope.bind<unknown>({ namespace: 'llm-pi-ai' })
+        return { scope, piAiScope }
+      },
+    }, ThinkingLevelsCard)
+  })
+
+  // DSH 0.1.5 renamed the Plugins settings card seat: `settings.plugin.item`
+  // is gone, replaced by `settings.plugins.tab` (list; `id` = tab key, `order`,
+  // `label` = registrant-localized tab text the owner reads per render).
+  // `slots.inject` only fires its callback once the named slot is DECLARED, so
+  // the two registrations below are mutually exclusive at runtime: 0.1.5+ hosts
+  // declare the tab seat, older hosts declare the item seat — no probing, no
+  // error swallowing.
+  const tabTitle = ctx.locale.bind(NS)
+  ctx.slots.inject('settings.plugins.tab', function* () {
+    yield ctx.slots.register({
+      name: 'settings.plugins.tab',
+      id: THINKING_LEVELS_NS,
+      order: 100,
+      locale: NS,
+      // Read-time thunk: `bind` re-reads the active locale per call, so the
+      // tab text follows locale switches without re-registration.
+      label: () => tabTitle('card.title'),
+      inject: (): ThinkingLevelsCardInjected => {
+        const scope = ctx.settingsScope.bind<ThinkingLevelsConfig>({ namespace: THINKING_LEVELS_NS })
         const piAiScope = ctx.settingsScope.bind<unknown>({ namespace: 'llm-pi-ai' })
         return { scope, piAiScope }
       },

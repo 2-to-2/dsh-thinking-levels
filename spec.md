@@ -1,38 +1,43 @@
-# Spec: check 分支官方 compat 路径替代插件边路
+# Spec: dsh-thinking-levels DSH 0.1.5-rc 升级兼容（compat/0.1.5 分支）
+
+> 2026-09-06 的 check 分支任务已完成，旧产物见 git 历史（ecfa7db 等）。
 
 ## 需求
-- 澄清 `compat.supportsDeveloperRole: false` 的定位:它是 settings.yaml 声明式配置,
-  由 dsh-llm-pi-ai(config.ts:249 `PiAiCompatProfile`)读取并透传给 pi-ai 执行,
-  **不需要**在 check 分支编写任何"设置该 flag 的逻辑"。
-- check 分支的验证目标:用官方声明式配置**配置替代**(而非代码替代)插件接管链路,
-  确认 `dsh-llm-openai-completions` 与 `dsh-thinking-levels` 可否卸载。
-- 明确 `dsh-llm-openai-completions` 五项职责与官方路径的覆盖对照,识别残留缺口。
+- 在 `compat/0.1.5` 分支上使插件兼容 DSH 0.1.5-rc.1 / rc.2。
+- 分支内保留对 ≤0.1.3 的回退（不破坏 master 0.1.2+ 兼容线）。
+- 产出可发布版本 2.0.0-beta.3 + README 版本矩阵更新。
+
+## 现状（已核实）
+- 当前在 `master`（2.0.0-beta.2），无 `compat/0.1.5` 分支，需从 master 新建。
+- devDeps 锁在 `^0.1.0-rc.7`；peerDeps / engines.dsh 已是 `>=0.1.2-alpha.1 <0.2.0-0`，天然覆盖 0.1.5-rc.2。
+- npm 上 `@deepseek-ai/*@0.1.5-rc.2` 已发布。
+
+## 0.1.5-rc.2 契约探针结论（临时目录解包 .d.ts 核实）
+| 扩展点 | 0.1.5-rc.2 现状 | 影响 |
+|---|---|---|
+| `settings.plugin.item` 槽 | **已移除**（ui-settings 全包无声明） | 🔴 settings 卡片必须迁移 |
+| `settings.plugins.tab` 槽 | 新增：list，options `id`/`order`/`label`（`SlotLabel = string \| (() => string)`），owner 不传 props | 卡片改挂此槽；`inject` 工厂仍受支持，`{scope, piAiScope}` 注入可保留 |
+| `conversation.input.right` 槽 | ✅ 仍存在（list / session） | context-quick 注册不变 |
+| `settings.register(ns, schema, {base})` | ✅ 保留（另有新 `installSection`） | 宿主半无需改 |
+| `settings.get(ns)` / `update(ns, patch)` | ✅ 保留（`update` 新增可选 `expectedRevision`） | takeover-sync 无需改 |
+| `settings/document-updated` | ✅ 保留，签名 `(ns, revision)` | 现有监听兼容 |
+| `locale.register` 双 overload | ✅ 保留 | 无需改 |
+| `settingsScope.bind({namespace})` | ✅ 保留 | 无需改 |
+| `agent/request` / `session.events tool/call` | 核心 API，以 0.1.5-rc.2 devDeps 下 typecheck + vitest 验证 | 待验证任务 |
 
 ## 技术方案
-- 不改插件源码。check 分支仅在 check/ 目录维护验证材料(CHECK.md、
-  settings-route.example.yaml、record-proxy.mjs)。
-- 对照表(官方覆盖 → 结论):
-  1. system 角色固定 `system` = `compat.supportsDeveloperRole: false`(rc.8+)→ 覆盖
-  2. `thinkingFormat: qwen` / `qwen-chat-template` / `deepseek` 等 11 种
-     (catalog.ts THINKING_FORMAT_GATE,rc.8 起全量)→ 覆盖;
-     qwen-chat-template 所需 kwargs 由 `compat.chatTemplateKwargs` 声明
-  3. effort 透传 + 词汇映射 = 模型 `reasoningEfforts` 表 → 覆盖
-  4. Qwen3 内联 `<think>` 拆分为独立 reasoning block → **待实测**(缺口候选)
-  5. 视觉图片 data URI 序列化 → pi-ai 原生 `image_url` 支持,声明 `input:[text,image]`
-     后**待实测**
-- 验证手段:record-proxy.mjs 录制真实请求体(A 插件基线 / B 官方路径对照)。
+1. **settings 卡片双槽位回退**（`src/client/index.ts`）：0.1.5+ 挂 `settings.plugins.tab`（`id` + `order` + `label`，inject 返回原 `{scope, piAiScope}`）；≤0.1.3 回退 `settings.plugin.item`（现有 id/key 双写不变）。回退判定用运行时探测（详见 findings §回退探测）。卡片组件 `card.tsx` 不改——只消费注入 scope。
+2. **依赖升级**：devDeps 五个 `@deepseek-ai/*` → `0.1.5-rc.2`，typecheck 暴露剩余类型漂移并修复。
+3. **元数据**：engines / peerDeps 维持现值；版本号 → `2.0.0-beta.3`（package.json + dsh.plugin.json 同步）。
+4. **README**：版本兼容矩阵加 0.1.5 行；排障章节加「升级后插件卡片不显示 → 强制刷新浏览器（client combo 缓存陈旧）」。
 
 ## 决策记录
 | 选项 | 选择 | 理由 |
-|------|------|------|
-| 在插件里实现 flag 写入逻辑 | **是(check 分支,作为迁移桥)** | 用户裁定:短路逻辑开关原位替换为官方 flag 写入;学 effort 的宿主侧存储写法,不做配置面板 |
-| 短路接管清单(nextTakeoverSection) | 删除,原位替换为 `withDeveloperRoleDisabled` | 官方 compat 面使传输接管不再必要;identification 逻辑保留复用 |
-| 门控读桥(takeoverOf/piAiPosture) | 保留 | adapter 缺席时返回 null → 原生语义,与官方路径自洽 |
-| 写入层级 | 仅 route 级 `providers.<route>.compat` | 官方继承链 model→provider→catalog→protocol;显式值(true/false)永不覆盖,model 行不触碰 |
-| 写入方式 | 读→纯变换(身份比较)→整段 `settings.update('llm-pi-ai',{providers})` | effort host 模式;dsh schema 在写入处把关,rc.8 前版本拒绝被 catch 记日志 |
+|---|---|---|
+| 槽位迁移策略 | 双槽位运行时回退 | compat 分支与 master 同源演进，0.1.2 用户不丢卡片；与现有 id/key 双写同模式 |
+| settings API | 维持 `register`，不迁 `installSection` | register 在 0.1.5-rc.2 仍保留，迁移无收益（YAGNI） |
+| devDeps 版本 | 直接升 0.1.5-rc.2 | compat 分支目标即 0.1.5，类型检查以最新 rc 为准 |
 
 ## 约束
-- dsh ≥ v0.1.0-rc.8(引入 884f7b9c41);thinkingFormat qwen 系 rc.8 起可用。
-- #3789 默认值反转未落地:`supportsDeveloperRole: false` 必须显式写。
-- compat 键冒号留空被 dsh 拒绝;每键必须给值。
-- 验证用 dsh ≥ v0.1.2-rc.1 亦可(pi-ai ^0.84.2,开关集更全)。
+- 宿主半不得 value-import `@deepseek-ai/dsh-settings`（既有约定，保持）。
+- 客户端 bundle 保持纯 type-only import（既有约定）。
