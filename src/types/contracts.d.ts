@@ -17,6 +17,13 @@
  *   the `slots` service behind this mirror's `SlotsFace`.
  * - `packages/client/ui-settings/src/client/settings-contract.ts` — `SettingsScope`.
  * - `packages/client/locale/src/client/index.ts:380` — the `register` overloads.
+ *
+ * The `slots` service no longer arrives through declaration merging:
+ * `0.1.2-rc.1` made `@deepseek-ai/dsh-client-ui-slots` a pure registry
+ * ("no cordis") and dropped the cordis Context augmentation, so
+ * `src/client/index.ts` acquires it with `ctx.get('slots')` and types it with
+ * this mirror's {@link SlotsFace}. `locale` and `settingsScope` still arrive by
+ * augmentation and keep their `import type {}` side-effect imports.
  */
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {

@@ -8,6 +8,22 @@ All notable changes to `dsh-thinking-levels` are documented here.
 
 ## [Unreleased]
 
+### Fixed — the `slots` service face on the 0.1.2 segment — 2.0.0-beta.3
+
+- **The browser half acquires the `slots` service structurally again.** `0.1.2-rc.1` turned
+  `@deepseek-ai/dsh-client-ui-slots` into a pure registry ("no cordis") and dropped its cordis
+  Context augmentation, so `ctx.slots` stopped type-resolving — the client half no longer compiled
+  against the very segment `engines.dsh` declares. It now reads the service through
+  `ctx.get('slots')` (the name `inject` declares) and bails out early when it is absent, mirroring
+  `dsh-search-index` on the same harness segment. Both registrations — the `settings.plugin.item`
+  card and the `conversation.input.right` context control — are unchanged.
+- **`devDependencies` realign with the supported segment.** The four `@deepseek-ai/dsh-client-*`
+  entries were still pinned at `^0.1.0-rc.7` (resolving `0.1.0-rc.8`), so `typecheck` and `build`
+  compiled against the 0.1.0 contract while the runtime is 0.1.2. All four are now pinned at
+  `0.1.2-rc.1`, the release this line is verified against.
+- **`pnpm-workspace.yaml` carries a resolved `allowBuilds`.** The placeholder pnpm wrote
+  (`esbuild: set this to true or false`) blocked every install with `ERR_PNPM_IGNORED_BUILDS`.
+
 ### Changed — the context control lives in the composer row — 2.0.0-beta.2
 
 - **The context-window quick control sits in the composer tool row again**

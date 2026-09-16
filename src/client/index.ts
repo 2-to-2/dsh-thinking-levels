@@ -13,6 +13,7 @@
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { SlotsFace } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ThinkingLevelsConfig } from '../index.ts'
 import { NS, en, ja, ko, zh } from './locales.ts'
 import { ThinkingLevelsCard, type ThinkingLevelsCardInjected } from './card.tsx'
@@ -29,6 +30,14 @@ export const inject = ['slots', 'locale', 'settingsScope']
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
+  // The 0.1.2 segment turned @deepseek-ai/dsh-client-ui-slots into a pure
+  // registry ("no cordis"), so its cordis Context augmentation is gone and
+  // `ctx.slots` no longer type-resolves. The service is still registered under
+  // the `slots` name at runtime — the very name `inject` above declares — so it
+  // is acquired structurally here, mirroring dsh-search-index on this segment.
+  const slots = ctx.get('slots') as SlotsFace | undefined
+  if (slots === undefined) return
+
   // `register(ns, dicts)` is typed to the built-in locale ids (`zh` / `en`
   // only); the shipped `ja` / `ko` dictionaries go through the single-locale
   // overload, so they are installed and ready once DSH publishes those ids.
@@ -41,8 +50,8 @@ export function apply(ctx: ClientContext): void {
     return () => { for (const dispose of disposers) dispose() }
   }, 'dsh-thinking-levels: dictionaries')
 
-  ctx.slots.inject('settings.plugin.item', function* () {
-    yield ctx.slots.register({
+  slots.inject('settings.plugin.item', function* () {
+    yield slots.register({
       name: 'settings.plugin.item',
       // Both keys are supplied: CLI dsh declares this slot `keyed` (needs
       // `key`) while DSH Desktop's bundled version declares it `list` (needs
@@ -72,8 +81,8 @@ export function apply(ctx: ClientContext): void {
   // `models[].contextWindow`, else the provider default). The model card itself
   // is not an option: the shipped `ModelSelect` renders no slots, so a plugin
   // cannot contribute inside that popup.
-  ctx.slots.inject('conversation.input.right', function* () {
-    yield ctx.slots.register({
+  slots.inject('conversation.input.right', function* () {
+    yield slots.register({
       name: 'conversation.input.right',
       id: 'context-window-quick',
       locale: NS,
