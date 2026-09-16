@@ -83,6 +83,10 @@
     "test": "vitest run"
   },
   "license": "MIT",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "tag": "beta"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"

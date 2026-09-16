@@ -8,6 +8,26 @@ All notable changes to `dsh-thinking-levels` are documented here.
 
 ## [Unreleased]
 
+### Added — `publishConfig` pins the registry and the dist-tag
+
+Publishing this line went wrong twice by hand: a bare `npm publish` resolved against the
+npmmirror registry (`ENEEDAUTH`), and the prerelease then had to be kept off `latest` by
+remembering `--tag beta` every single time. Both are now machine-enforced:
+
+```json
+"publishConfig": { "registry": "https://registry.npmjs.org", "tag": "beta" }
+```
+
+> **When this line goes stable**, change `tag` to `latest` in the same commit that drops the
+> `-beta.N` suffix — otherwise the stable release lands under `beta` and `latest` stays on
+> the previous major. (Recoverable, but only via `npm dist-tag add`.)
+
+### Added — `pnpm-lock.yaml` is tracked
+
+It was previously untracked, so every fresh clone re-resolved the whole tree — including the
+four `@deepseek-ai/dsh-client-*` pins this line's compatibility depends on. The lock is now
+committed; treat it as part of the contract, not as a local artifact.
+
 ### Fixed — the `slots` service face on the 0.1.2 segment — 2.0.0-beta.3
 
 - **The browser half acquires the `slots` service structurally again.** `0.1.2-rc.1` turned
