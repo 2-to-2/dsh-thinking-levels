@@ -25,6 +25,21 @@ All notable changes to `dsh-thinking-levels` are documented here.
   were needed.
 - Verified against 0.1.5-rc.2 contract surfaces unpacked from npm: `conversation.input.right`,
   `settingsScope.bind`, locale overloads, and the settings service face are all preserved.
+- **`lib/` is committed to git.** `package.json` ships `files: ["lib", …]` and points `main` /
+  `types` / `exports` at `lib/`, but `.gitignore` still listed `lib/` — so a GitHub-based install
+  (which runs no build) received a package with no entry point. The built artifacts are now in
+  version control, and a rebuild reproduces them byte-for-byte (no content diff, only the
+  `core.autocrlf` line-ending noise).
+- **`engines.dsh` narrowed to the segment this line actually implements**: the previous
+  `>=0.1.2-alpha.1 <0.2.0-0` admitted 0.1.2–0.1.4 hosts, where the client half cannot compile
+  against the renamed Plugins settings seat this line registers. It is now
+  `>=0.1.5-alpha.1 <0.2.0-0` (and `node` narrowed to `^22.19.0 || >=24.0.0`, matching the
+  toolchain). `publishConfig` pins `registry` + `tag: beta` so a bare `npm publish` can neither
+  misresolve the mirror nor overwrite the stable `latest` line, and `pnpm-lock.yaml` is
+  tracked as part of the compatibility contract rather than treated as a local artifact.
+- **A pnpm `allowBuilds` placeholder no longer blocks installs.** `pnpm-workspace.yaml` carried
+  pnpm's literal `set this to true or false` stub, which aborted every `pnpm install` with
+  `ERR_PNPM_IGNORED_BUILDS`; it now reads `esbuild: true`.
 
 ### Changed — the context control lives in the composer row — 2.0.0-beta.2
 
