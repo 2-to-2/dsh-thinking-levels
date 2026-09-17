@@ -6,6 +6,12 @@
 - [日本語 changelog](./CHANGELOG.ja.md)
 - [한국어 changelog](./CHANGELOG.ko.md)
 
+## [Unreleased]
+
+### 修正 — プラグイン設定の二重表示 — 2.0.0-beta.4
+
+- **`settings.plugins.tab` 登録を削除。** 0.1.5 互換作業では DSH 0.1.5 が `settings.plugin.item` スロットを廃止したと想定していましたが、リリース済みの 0.1.5-rc.2（および 0.1.6-alpha.1）の `ui-settings-plugins` は内蔵の設定タブの子として同スロットを維持しています。両スロットが宣言されているため 2 つの登録が同時に発火し、設定 → プラグインに項目カードと専用タブの 2 つが表示されていました。項目カードだけで全サポート線をカバーできるため、タブ登録（および `ctx.locale.bind` のラベル thunk）を削除しました。
+
 ## [0.7.0-beta.1] — 2026-09-06
 
 > **ベータ版：ショートサーキット経路の廃止。** 本リリースは `dsh-llm-openai-completions`（および一切の transport 引き継ぎサイドパス）に依存しません。すべてのゲートウェイ修正は公式 `llm-pi-ai` compat 面（**dsh v0.1.0-rc.8** 以降で利用可能）に乗ります。

@@ -6,6 +6,12 @@
 - [日本語 changelog](./CHANGELOG.ja.md)
 - [한국어 changelog](./CHANGELOG.ko.md)
 
+## [Unreleased]
+
+### 수정 — 플러그인 설정 중복 표시 — 2.0.0-beta.4
+
+- **`settings.plugins.tab` 등록 제거.** 0.1.5 호환 작업에서 DSH 0.1.5가 `settings.plugin.item` 슬롯을 폐지했다고 가정했지만, 릴리스된 0.1.5-rc.2(및 0.1.6-alpha.1)의 `ui-settings-plugins`는 내장 구성 탭의 자식으로 해당 슬롯을 유지합니다. 두 슬롯이 모두 선언되어 두 등록이 동시에 발화했고, 설정 → 플러그인에 항목 카드와 전용 탭이 함께 표시되었습니다. 항목 카드만으로 전체 지원 라인을 커버할 수 있으므로 탭 등록(및 `ctx.locale.bind` 라벨 thunk)을 제거했습니다.
+
 ## [0.7.0-beta.1] — 2026-09-06
 
 > **베타: 단락(short-circuit) 경로 폐지.** 이 릴리스는 `dsh-llm-openai-completions`(및 모든 transport 인계 사이드 경로)에 의존하지 않습니다. 모든 게이트웨이 수정은 공식 `llm-pi-ai` compat 면(**dsh v0.1.0-rc.8** 이상)으로 처리됩니다.

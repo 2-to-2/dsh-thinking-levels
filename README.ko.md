@@ -18,7 +18,7 @@
 
 > **호환성 참고:** `0.6.0`에는 일본어(`ja`)와 한국어(`ko`) 사전 및 선택 항목이 포함되어 있지만, 현재 공식 DSH는 `LocaleRuntime`을 통해 `zh`와 `en`만 제공합니다. 순정 DSH에서 `ja` 또는 `ko`를 선택하면 `locale "<id>" is not registered` 오류가 발생합니다. 공식 DSH가 해당 locale ID를 추가할 때까지 사용할 수 없습니다. 고급 사용자는 DSH 포크를 유지하면서 `packages/client/locale/src/locale-settings.ts`의 `LOCALE_IDS`와 `packages/client/locale/src/client/index.ts`의 `LOCALES` 라벨을 업데이트하고 핵심 사전과 테스트를 추가한 뒤 다시 빌드하여 실행할 수 있습니다. 이 플러그인만으로는 DSH의 전역 locale 목록을 확장할 수 없습니다.
 
-> **버전 호환(2.0.0-beta.3+):** DSH ≥ 0.1.2-alpha.1 지원. DSH 0.1.5에서 플러그인 설정 카드 슬롯이 `settings.plugin.item`에서 `settings.plugins.tab`으로 변경되었지만, 이 플러그인은 호스트가 선언한 슬롯에 자동으로 등록되므로 두 버전 라인 모두에서 카드가 표시됩니다. 기존 프로필을 DSH 0.1.5로 업그레이드한 후 카드가 사라지면 먼저 브라우저를 강제 새로 고침하세요(client combo 캐시 정체는 0.1.5의 알려진 업그레이드 문제입니다).
+> **버전 호환(2.0.0-beta.4+):** DSH ≥ 0.1.2-alpha.1 지원. 실측(v0.1.5-rc.2 및 v0.1.6-alpha.1) 결과 DSH 0.1.5는 `settings.plugin.item` 슬롯을 유지합니다(내장 구성 탭의 카드 목록). 이 플러그인은 이 카드 하나만 등록하여 전체 지원 라인을 커버하며, 별도의 `settings.plugins.tab` 페이지는 제공하지 않습니다. 기존 프로필을 DSH 0.1.5로 업그레이드한 후 카드가 사라지면 먼저 브라우저를 강제 새로 고침하세요(client combo 캐시 정체는 0.1.5의 알려진 업그레이드 문제입니다).
 
 멀티스텝 도구 체인에서 모델은 **모든 도구 호출 전에** 다시 생각합니다——그 사고가 벽시계 시간의 대부분을 차지합니다(50스텝 에이전트 작업은 도구 사이에 수 분의 추론을 쓸 수 있습니다). `dsh-thinking-levels`는 dsh가 매 스텝 다시 해석하는 `agent/request` waterfall(`prepend`로 최외곽에 등록하여 세션 모델 선택 어셈블리가 덮어쓰지 못하게 함)에 연결되어 다음 모델 요청에 사고 수준을 주입합니다.
 

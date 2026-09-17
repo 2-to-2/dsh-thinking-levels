@@ -18,7 +18,7 @@
 
 > **兼容性说明：** `0.6.0` 已包含日本語（`ja`）和한국어（`ko`）字典及选择项，但当前官方 DSH 只通过 `LocaleRuntime` 提供 `zh` 和 `en`。在原版 DSH 中选择 `ja` 或 `ko` 会失败，并提示 `locale "<id>" is not registered`。需要等待官方 DSH 增加对应 locale ID 后才能正常使用。高级用户可以维护 DSH fork，在 `packages/client/locale/src/locale-settings.ts` 更新 `LOCALE_IDS`，在 `packages/client/locale/src/client/index.ts` 更新 `LOCALES` 标签，并补齐核心字典和测试，然后重新构建并运行 fork 版本。仅修改本插件无法扩展 DSH 的全局 locale 列表。
 
-> **版本兼容（2.0.0-beta.3+）：** 支持 DSH ≥ 0.1.2-alpha.1。DSH 0.1.5 将插件设置卡片的槽位从 `settings.plugin.item` 更名为 `settings.plugins.tab`，本插件的注册按宿主声明自动择一挂载，两个版本线均可正常显示卡片。从旧 profile 升级到 DSH 0.1.5 后若插件卡片消失，请先强制刷新浏览器（client combo 缓存陈旧是 0.1.5 已知升级问题）。
+> **版本兼容（2.0.0-beta.4+）：** 支持 DSH ≥ 0.1.2-alpha.1。经实测（v0.1.5-rc.2 与 v0.1.6-alpha.1），DSH 0.1.5 仍保留 `settings.plugin.item` 槽位（内置"配置" tab 的卡片列表），本插件只注册这一张卡片，覆盖全部支持版本线；不贡献独立的 `settings.plugins.tab` 页。从旧 profile 升级到 DSH 0.1.5 后若插件卡片消失，请先强制刷新浏览器（client combo 缓存陈旧是 0.1.5 已知升级问题）。
 
 在多步工具链任务中，模型在**每一次工具调用前**都会重新思考——而这个思考过程占据了绝大部分墙钟时间（一个 50 步的 agent 任务可能在工具之间花费数分钟思考）。`dsh-thinking-levels` 接入 dsh 每一步都会重新解析的 `agent/request` waterfall（以 `prepend` 置于最外层，避免被会话模型选择覆盖），向下一次模型请求注入思考档位。
 

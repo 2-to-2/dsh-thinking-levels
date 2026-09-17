@@ -6,6 +6,13 @@
  * settings tab renders an editable card: the level picker (off / low / high /
  * max / auto) plus the scheduler toggles.
  *
+ * The DSH 0.1.5 line still declares the `settings.plugin.item` seat (verified
+ * against dsh-v0.1.5-rc.2 and v0.1.6-alpha.1: `ui-settings-plugins` keeps it as
+ * the child of its built-in configurable tab), so this single registration
+ * covers the whole supported segment. A `settings.plugins.tab` registration
+ * would additionally mint a dedicated top-level Plugins tab duplicating the
+ * item card, so none is made.
+ *
  * All @deepseek-ai/* imports are type-only: collaboration happens through
  * cordis services (`settingsScope`) and slot registration only (client bundle
  * purity).
@@ -62,31 +69,6 @@ export function apply(ctx: ClientContext): void {
         // effort levels / thinking format / the route-level official
         // compat.supportsDeveloperRole flag) without touching any official
         // package — llm-pi-ai's own schema validates every write.
-        const piAiScope = ctx.settingsScope.bind<unknown>({ namespace: 'llm-pi-ai' })
-        return { scope, piAiScope }
-      },
-    }, ThinkingLevelsCard)
-  })
-
-  // DSH 0.1.5 renamed the Plugins settings card seat: `settings.plugin.item`
-  // is gone, replaced by `settings.plugins.tab` (list; `id` = tab key, `order`,
-  // `label` = registrant-localized tab text the owner reads per render).
-  // `slots.inject` only fires its callback once the named slot is DECLARED, so
-  // the two registrations below are mutually exclusive at runtime: 0.1.5+ hosts
-  // declare the tab seat, older hosts declare the item seat — no probing, no
-  // error swallowing.
-  const tabTitle = ctx.locale.bind(NS)
-  ctx.slots.inject('settings.plugins.tab', function* () {
-    yield ctx.slots.register({
-      name: 'settings.plugins.tab',
-      id: THINKING_LEVELS_NS,
-      order: 100,
-      locale: NS,
-      // Read-time thunk: `bind` re-reads the active locale per call, so the
-      // tab text follows locale switches without re-registration.
-      label: () => tabTitle('card.title'),
-      inject: (): ThinkingLevelsCardInjected => {
-        const scope = ctx.settingsScope.bind<ThinkingLevelsConfig>({ namespace: THINKING_LEVELS_NS })
         const piAiScope = ctx.settingsScope.bind<unknown>({ namespace: 'llm-pi-ai' })
         return { scope, piAiScope }
       },

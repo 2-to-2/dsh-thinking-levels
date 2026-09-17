@@ -8,6 +8,16 @@ All notable changes to `dsh-thinking-levels` are documented here.
 
 ## [Unreleased]
 
+### Fixed — duplicate Plugins settings entry — 2.0.0-beta.4
+
+- **Removed the `settings.plugins.tab` registration.** The 0.1.5 compat work assumed DSH 0.1.5
+  had removed the `settings.plugin.item` seat, but the released 0.1.5-rc.2 (and 0.1.6-alpha.1)
+  `ui-settings-plugins` still declares it as the child of the built-in configurable Plugins tab.
+  With both seats declared, the two registrations both fired and the plugin appeared twice in
+  Settings → Plugins: once as an item card in the configurable list and once as a dedicated
+  top-level tab. The item card alone covers every supported line, so the tab registration is
+  gone (with its `ctx.locale.bind` label thunk).
+
 ### Changed — DSH 0.1.5-rc compatibility — 2.0.0-beta.3
 
 - **The settings card rides the new 0.1.5 seat.** DSH 0.1.5 renamed the Plugins settings card
